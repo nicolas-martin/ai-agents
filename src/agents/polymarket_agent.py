@@ -264,7 +264,7 @@ class PolymarketAgent:
         price_float = float(price)
         return price_float <= IGNORE_PRICE_THRESHOLD or price_float >= (1.0 - IGNORE_PRICE_THRESHOLD)
 
-    def should_ignore_market(self, title, slug):
+    def should_ignore_market(self, title: str, slug: str):
         """🌙 Moon Dev - Check if market should be ignored based on category keywords
 
         Returns:
@@ -319,9 +319,9 @@ class PolymarketAgent:
                     size = float(payload.get('size', 0))
                     usd_amount = price * size
                     title = payload.get('title', 'Unknown')
+                    slug = payload.get('eventSlug', 'Unknown') 
 
-                    # 🌙 Moon Dev - Check if we should ignore this market category
-                    should_ignore, ignore_reason = self.should_ignore_market(title)
+                    should_ignore, ignore_reason = self.should_ignore_market(title, slug)
                     if should_ignore:
                         # Track what we're ignoring
                         if 'crypto' in ignore_reason or 'bitcoin' in ignore_reason:
@@ -460,7 +460,8 @@ class PolymarketAgent:
                 size = float(trade.get('size', 0))
                 usd_amount = price * size
                 title = trade.get('title', 'Unknown')
-				slug = payload.get('eventSlug', '') 
+                cprint(f"---------------{trade}")
+                slug = trade.get('eventSlug', 'Unknown') 
 
                 # Check if we should ignore this market category
                 should_ignore, _ = self.should_ignore_market(title, slug)
