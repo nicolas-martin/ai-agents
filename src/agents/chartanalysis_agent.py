@@ -68,7 +68,7 @@ class ChartAnalysisAgent(BaseAgent):
     def __init__(self):
         """Initialize Chuck the Chart Agent"""
         super().__init__('chartanalysis')
-        
+
         # Set up directories
         self.charts_dir = PROJECT_ROOT / "src" / "data" / "charts"
         self.charts_dir.mkdir(parents=True, exist_ok=True)
@@ -78,9 +78,22 @@ class ChartAnalysisAgent(BaseAgent):
 
         # Initialize API client
         anthropic_key = os.getenv("ANTHROPIC_KEY")
+        hyperliquid_key = os.getenv("HYPER_LIQUID_ETH_PRIVATE_KEY")
 
-        if not anthropic_key:
-            raise ValueError("🚨 ANTHROPIC_KEY not found in environment variables!")
+        # Validate API keys
+        if not anthropic_key or anthropic_key == "your_anthropic_api_key_here":
+            raise ValueError(
+                "🚨 ANTHROPIC_KEY not configured!\n"
+                "   Please edit your .env file and add your Anthropic API key.\n"
+                "   Get one at: https://console.anthropic.com/"
+            )
+
+        if not hyperliquid_key or hyperliquid_key == "your_hyperliquid_eth_private_key_here":
+            raise ValueError(
+                "🚨 HYPER_LIQUID_ETH_PRIVATE_KEY not configured!\n"
+                "   Please edit your .env file and add your HyperLiquid private key.\n"
+                "   Get one from your HyperLiquid account settings."
+            )
 
         self.client = anthropic.Anthropic(api_key=anthropic_key)
         
@@ -126,15 +139,20 @@ class ChartAnalysisAgent(BaseAgent):
             # Save chart
             filename = f"{symbol}_{timeframe}_{int(time.time())}.png"
             chart_path = self.charts_dir / filename
-            
-            # Create the chart
-            mpf.plot(df,
-                    type='candle',
-                    style=CHART_STYLE,
-                    volume=VOLUME_PANEL,
-                    addplot=ap if ap else None,
-                    title=f"\n{symbol} {timeframe} Chart Analysis by Moon Dev 🌙",
-                    savefig=chart_path)
+
+            # Create the chart - only add addplot if we have indicators
+            plot_kwargs = {
+                'type': 'candle',
+                'style': CHART_STYLE,
+                'volume': VOLUME_PANEL,
+                'title': f"\n{symbol} {timeframe} Chart Analysis by Moon Dev 🌙",
+                'savefig': chart_path
+            }
+
+            if ap:  # Only add addplot if there are indicators
+                plot_kwargs['addplot'] = ap
+
+            mpf.plot(df, **plot_kwargs)
             
             return chart_path
             
