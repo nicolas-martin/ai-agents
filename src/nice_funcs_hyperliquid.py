@@ -466,11 +466,6 @@ def _get_account_from_env():
 def _get_ohlcv(symbol, interval, start_time, end_time, batch_size=BATCH_SIZE):
     """Internal function to fetch OHLCV data from Hyperliquid"""
     global timestamp_offset
-    print(f'\n🔍 Requesting data for {symbol}:')
-    print(f'📊 Batch Size: {batch_size}')
-    print(f'⏰ Interval: {interval}')
-    print(f'🚀 Start: {start_time.strftime("%Y-%m-%d %H:%M:%S")} UTC')
-    print(f'🎯 End: {end_time.strftime("%Y-%m-%d %H:%M:%S")} UTC')
 
     start_ts = int(start_time.timestamp() * 1000)
     end_ts = int(end_time.timestamp() * 1000)
@@ -513,11 +508,7 @@ def _get_ohlcv(symbol, interval, start_time, end_time, batch_size=BATCH_SIZE):
                         adjusted_dt = adjust_timestamp(dt)
                         candle['t'] = int(adjusted_dt.timestamp() * 1000)
 
-                    first_time = datetime.datetime.utcfromtimestamp(snapshot_data[0]['t'] / 1000)
-                    last_time = datetime.datetime.utcfromtimestamp(snapshot_data[-1]['t'] / 1000)
-                    print(f'✨ Received {len(snapshot_data)} candles')
-                    print(f'📈 First: {first_time}')
-                    print(f'📉 Last: {last_time}')
+                    print(f'Received {len(snapshot_data)} candles')
                     return snapshot_data
                 print('❌ No data returned by API')
                 return None
@@ -583,8 +574,6 @@ def add_technical_indicators(df):
         return df
 
     try:
-        print("\n🔧 Adding technical indicators...")
-
         # Ensure numeric columns are float64
         numeric_cols = ['open', 'high', 'low', 'close', 'volume']
         df[numeric_cols] = df[numeric_cols].astype('float64')
@@ -602,7 +591,6 @@ def add_technical_indicators(df):
         bbands = ta.bbands(df['close'])
         df = pd.concat([df, bbands], axis=1)
 
-        print("✅ Technical indicators added successfully")
         return df
 
     except Exception as e:
@@ -650,10 +638,6 @@ def get_data(symbol, timeframe='15m', bars=100, add_indicators=True):
         # Add technical indicators if requested
         if add_indicators:
             df = add_technical_indicators(df)
-
-        print("\nData summary:")
-        print(f"Total candles: {len(df)}")
-        print(f"📅 Range: {df['timestamp'].min()} to {df['timestamp'].max()}")
 
     return df
 

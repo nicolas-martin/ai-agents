@@ -1,5 +1,4 @@
 """
-🌙 Moon Dev's Configuration File - Chart Analysis Agent
 Minimal configuration for running the Chart Analysis Agent
 """
 

@@ -8,15 +8,14 @@ import mplfinance as mpf
 from pathlib import Path
 import time
 from dotenv import load_dotenv
-import anthropic
 from src import nice_funcs_hyperliquid as hl
+from src.models.claude_model import ClaudeModel
 from src.agents.base_agent import BaseAgent
 import traceback
 import re
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.text import Text
 
 # Rich console for pretty output
 console = Console()
@@ -78,18 +77,8 @@ class ChartAnalysisAgent(BaseAgent):
         # Load environment variables
         load_dotenv()
 
-        # Initialize API client
-        anthropic_key = os.getenv("ANTHROPIC_KEY")
+        # Validate HyperLiquid key
         hyperliquid_key = os.getenv("HYPER_LIQUID_ETH_PRIVATE_KEY")
-
-        # Validate API keys
-        if not anthropic_key or anthropic_key == "your_anthropic_api_key_here":
-            raise ValueError(
-                "🚨 ANTHROPIC_KEY not configured!\n"
-                "   Please edit your .env file and add your Anthropic API key.\n"
-                "   Get one at: https://console.anthropic.com/"
-            )
-
         if not hyperliquid_key or hyperliquid_key == "your_hyperliquid_eth_private_key_here":
             raise ValueError(
                 "🚨 HYPER_LIQUID_ETH_PRIVATE_KEY not configured!\n"
@@ -97,12 +86,20 @@ class ChartAnalysisAgent(BaseAgent):
                 "   Get one from your HyperLiquid account settings."
             )
 
-        self.client = anthropic.Anthropic(api_key=anthropic_key)
-        
         # Set AI parameters - use config values unless overridden
         self.ai_model = AI_MODEL if AI_MODEL else config.AI_MODEL
         self.ai_temperature = AI_TEMPERATURE if AI_TEMPERATURE > 0 else config.AI_TEMPERATURE
         self.ai_max_tokens = AI_MAX_TOKENS if AI_MAX_TOKENS > 0 else config.AI_MAX_TOKENS
+
+        # Initialize Claude model
+        anthropic_key = os.getenv("ANTHROPIC_KEY")
+        if not anthropic_key or anthropic_key == "your_anthropic_api_key_here":
+            raise ValueError(
+                "🚨 ANTHROPIC_KEY not configured!\n"
+                "   Please edit your .env file and add your Anthropic API key.\n"
+                "   Get one at: https://console.anthropic.com/"
+            )
+        self.model = ClaudeModel(api_key=anthropic_key, model_name=self.ai_model)
         
         print("📊 Chuck the Chart Agent initialized!")
         print(f"🤖 Using AI Model: {self.ai_model}")
@@ -187,39 +184,21 @@ class ChartAnalysisAgent(BaseAgent):
             )
             
             print(f"\n🤖 Analyzing {symbol} with AI...")
-            
-            # Get AI analysis using instance settings
-            message = self.client.messages.create(
-                model=self.ai_model,
+
+            # Get AI analysis using ClaudeModel
+            response = self.model.generate_response(
+                system_prompt="You are a technical chart analyst. Analyze the given chart data and provide trading signals.",
+                user_content=context,
                 max_tokens=self.ai_max_tokens,
-                temperature=self.ai_temperature,
-                messages=[{
-                    "role": "user",
-                    "content": context
-                }]
+                temperature=self.ai_temperature
             )
-            
-            if not message or not message.content:
+
+            if not response or not response.content:
                 print("❌ No response from AI")
                 return None
-                
-            # Debug: Print raw response
-            print("\n🔍 Raw response:")
-            print(repr(message.content))
-            
-            # Get the raw content and convert to string
-            content = str(message.content)
-            
-            # Clean up TextBlock formatting - new format handling
-            if 'TextBlock' in content:
-                # Extract just the text content between quotes
-                match = re.search(r"text='([^']*)'", content, re.IGNORECASE)
-                if match:
-                    content = match.group(1)
-            
-            # Clean up any remaining formatting
-            content = content.replace('\\n', '\n')
-            content = content.strip('[]')
+
+            # Get the content (already cleaned by ClaudeModel)
+            content = response.content
             
             # Split into lines and clean each line
             lines = [line.strip() for line in content.split('\n') if line.strip()]
@@ -290,8 +269,6 @@ class ChartAnalysisAgent(BaseAgent):
             if 'SMA200' not in data.columns:
                 data['SMA200'] = data['close'].rolling(window=200).mean()
             
-            # Generate and save chart first
-            print(f"\n📊 Generating chart for {symbol} {timeframe}...")
             chart_path = self._generate_chart(symbol, timeframe, data)
             if chart_path:
                 print(f"📈 Chart saved to: {chart_path}")
