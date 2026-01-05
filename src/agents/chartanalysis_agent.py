@@ -20,10 +20,10 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 # Configuration
 CHECK_INTERVAL_MINUTES = 10  # 3 hours and 53 minutes
 TIMEFRAMES = ['15m']#['15m', '1h', '4h', '1d']  # Multiple timeframes to analyze
-LOOKBACK_BARS = 15  # Number of candles to analyze
+LOOKBACK_BARS = 250  # Number of candles to analyze (250 for valid SMA200)
 
 # Trading Pairs to Monitor
-SYMBOLS = ["BTC", "FARTCOIN"]  # Add or modify symbols here
+SYMBOLS = ["BTC", "SOL"]  # Add or modify symbols here
 
 # Chart Settings
 CHART_STYLE = 'charles'  # mplfinance style
@@ -137,7 +137,7 @@ class ChartAnalysisAgent(BaseAgent):
                 'type': 'candle',
                 'style': CHART_STYLE,
                 'volume': VOLUME_PANEL,
-                'title': f"\n{symbol} {timeframe} Chart Analysis by Moon Dev 🌙",
+                'title': f"\n{symbol} {timeframe} Chart Analysis",
                 'savefig': chart_path
             }
 
@@ -325,7 +325,7 @@ class ChartAnalysisAgent(BaseAgent):
             if analysis and all(k in analysis for k in ['direction', 'analysis', 'action', 'confidence']):
                 # Print analysis in a nice box
                 print("\n" + "╔" + "═" * 50 + "╗")
-                print(f"║    🌙 Moon Dev's Chart Analysis - {symbol} {timeframe}   ║")
+                print(f"║    Chart Analysis - {symbol} {timeframe}   ║")
                 print("╠" + "═" * 50 + "╣")
                 print(f"║  Direction: {analysis['direction']:<41} ║")
                 print(f"║  Action: {analysis['action']:<44} ║")
@@ -382,7 +382,7 @@ class ChartAnalysisAgent(BaseAgent):
 
 if __name__ == "__main__":
     # Create and run the agent
-    print("\n🌙 Moon Dev's Chart Analysis Agent Starting Up...")
+    print("\nChart Analysis Agent Starting Up...")
     print("👋 Hey! I'm Chuck, your friendly chart analysis agent! 📊")
     print(f"🎯 Monitoring {len(SYMBOLS)} symbols: {', '.join(SYMBOLS)}")
     agent = ChartAnalysisAgent()
