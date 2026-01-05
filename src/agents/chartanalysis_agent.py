@@ -13,6 +13,13 @@ from src import nice_funcs_hyperliquid as hl
 from src.agents.base_agent import BaseAgent
 import traceback
 import re
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+# Rich console for pretty output
+console = Console()
 
 # Get the project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -64,6 +71,9 @@ class ChartAnalysisAgent(BaseAgent):
         # Set up directories
         self.charts_dir = PROJECT_ROOT / "src" / "data" / "charts"
         self.charts_dir.mkdir(parents=True, exist_ok=True)
+
+        # Store analysis results for summary table
+        self.cycle_results = []
 
         # Load environment variables
         load_dotenv()
@@ -286,55 +296,74 @@ class ChartAnalysisAgent(BaseAgent):
             if chart_path:
                 print(f"📈 Chart saved to: {chart_path}")
             
-            # Debug print the chart data
-            print("\n" + "╔" + "═" * 60 + "╗")
-            print(f"║    🌙 Chart Data for {symbol} {timeframe} - Last 5 Candles    ║")
-            print("╠" + "═" * 60 + "╣")
-            print(f"║ Time │ Open │ High │ Low │ Close │ Volume │")
-            print("╟" + "─" * 60 + "╢")
-            
-            # Print last 5 candles with proper timestamp formatting
-            last_5 = data.tail(5)
+            # Create OHLCV table with rich
+            ohlcv_table = Table(title=f"Chart Data for {symbol} {timeframe} - Last 5 Candles")
+            ohlcv_table.add_column("Time", style="cyan")
+            ohlcv_table.add_column("Open", justify="right")
+            ohlcv_table.add_column("High", justify="right", style="green")
+            ohlcv_table.add_column("Low", justify="right", style="red")
+            ohlcv_table.add_column("Close", justify="right")
+            ohlcv_table.add_column("Volume", justify="right", style="dim")
 
-            # Check if timestamp is a column or the index
+            # Add last 5 candles
+            last_5 = data.tail(5)
             if 'timestamp' in last_5.columns:
-                # Timestamp is a column, use it directly
                 for idx, row in last_5.iterrows():
                     time_str = pd.to_datetime(row['timestamp']).strftime('%Y-%m-%d %H:%M')
-                    print(f"║ {time_str} │ {row['open']:.2f} │ {row['high']:.2f} │ {row['low']:.2f} │ {row['close']:.2f} │ {row['volume']:.0f} │")
+                    ohlcv_table.add_row(time_str, f"{row['open']:.2f}", f"{row['high']:.2f}", f"{row['low']:.2f}", f"{row['close']:.2f}", f"{row['volume']:.0f}")
             else:
-                # Timestamp is the index
                 last_5.index = pd.to_datetime(last_5.index)
                 for idx, row in last_5.iterrows():
                     time_str = idx.strftime('%Y-%m-%d %H:%M')
-                    print(f"║ {time_str} │ {row['open']:.2f} │ {row['high']:.2f} │ {row['low']:.2f} │ {row['close']:.2f} │ {row['volume']:.0f} │")
-            
-            print("\n║ Technical Indicators:")
-            print(f"║ SMA20: {data['SMA20'].iloc[-1]:.2f}")
-            print(f"║ SMA50: {data['SMA50'].iloc[-1]:.2f}")
-            print(f"║ SMA200: {data['SMA200'].iloc[-1] if not pd.isna(data['SMA200'].iloc[-1]) else 'Not enough data'}")
-            print(f"║ 24h High: {data['high'].max():.2f}")
-            print(f"║ 24h Low: {data['low'].min():.2f}")
-            print(f"║ Volume Trend: {'Increasing' if data['volume'].iloc[-1] > data['volume'].mean() else 'Decreasing'}")
-            print("╚" + "═" * 60 + "╝")
-                
+                    ohlcv_table.add_row(time_str, f"{row['open']:.2f}", f"{row['high']:.2f}", f"{row['low']:.2f}", f"{row['close']:.2f}", f"{row['volume']:.0f}")
+
+            console.print(ohlcv_table)
+
+            # Technical indicators panel
+            sma200_val = f"{data['SMA200'].iloc[-1]:.2f}" if not pd.isna(data['SMA200'].iloc[-1]) else "Not enough data"
+            volume_trend = "Increasing" if data['volume'].iloc[-1] > data['volume'].mean() else "Decreasing"
+
+            indicators_text = f"""[cyan]SMA20:[/cyan] {data['SMA20'].iloc[-1]:.2f}
+[cyan]SMA50:[/cyan] {data['SMA50'].iloc[-1]:.2f}
+[cyan]SMA200:[/cyan] {sma200_val}
+[cyan]24h High:[/cyan] [green]{data['high'].max():.2f}[/green]
+[cyan]24h Low:[/cyan] [red]{data['low'].min():.2f}[/red]
+[cyan]Volume Trend:[/cyan] {volume_trend}"""
+
+            console.print(Panel(indicators_text, title="Technical Indicators", border_style="blue", expand=False))
+
             # Analyze with AI
-            print(f"\n🔍 Analyzing {symbol} {timeframe}...")
+            console.print(f"\n[bold]Analyzing {symbol} {timeframe}...[/bold]")
             analysis = self._analyze_chart(symbol, timeframe, data)
-            
+
             if analysis and all(k in analysis for k in ['direction', 'analysis', 'action', 'confidence']):
-                # Print analysis in a nice box
-                print("\n" + "╔" + "═" * 50 + "╗")
-                print(f"║    Chart Analysis - {symbol} {timeframe}   ║")
-                print("╠" + "═" * 50 + "╣")
-                print(f"║  Direction: {analysis['direction']:<41} ║")
-                print(f"║  Action: {analysis['action']:<44} ║")
-                print(f"║  Confidence: {analysis['confidence']}%{' ' * 37}║")
-                print("╟" + "─" * 50 + "╢")
-                print(f"║  Analysis: {analysis['analysis']:<41} ║")
-                print("╚" + "═" * 50 + "╝")
+                # Color-code direction and action
+                direction = analysis['direction']
+                action = analysis['action']
+                confidence = analysis['confidence']
+
+                dir_color = "green" if direction == "BULLISH" else "red" if direction == "BEARISH" else "yellow"
+                action_color = "green" if action == "BUY" else "red" if action == "SELL" else "yellow"
+
+                analysis_text = f"""[bold {dir_color}]Direction:[/bold {dir_color}] {direction}
+[bold {action_color}]Action:[/bold {action_color}] {action}
+[bold]Confidence:[/bold] {confidence}%
+
+[dim]{analysis['analysis']}[/dim]"""
+
+                console.print(Panel(analysis_text, title=f"Chart Analysis - {symbol} {timeframe}", border_style=dir_color, expand=False))
+
+                # Store result for summary table
+                self.cycle_results.append({
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'direction': direction,
+                    'action': action,
+                    'confidence': confidence,
+                    'analysis': analysis['analysis']
+                })
             else:
-                print("❌ Invalid analysis result")
+                console.print("[red]Invalid analysis result[/red]")
             
         except Exception as e:
             print(f"❌ Error analyzing {symbol} {timeframe}: {str(e)}")
@@ -349,17 +378,52 @@ class ChartAnalysisAgent(BaseAgent):
         except Exception as e:
             print(f"⚠️ Error cleaning up charts: {str(e)}")
 
+    def _print_summary_table(self):
+        """Print a summary table of all analysis results"""
+        if not self.cycle_results:
+            return
+
+        summary_table = Table(title="Analysis Summary", expand=False)
+        summary_table.add_column("Symbol", style="cyan", justify="center")
+        summary_table.add_column("Timeframe", justify="center")
+        summary_table.add_column("Direction", justify="center")
+        summary_table.add_column("Action", justify="center")
+        summary_table.add_column("Confidence", justify="right")
+        summary_table.add_column("Analysis", max_width=40)
+
+        for result in self.cycle_results:
+            dir_color = "green" if result['direction'] == "BULLISH" else "red" if result['direction'] == "BEARISH" else "yellow"
+            action_color = "green" if result['action'] == "BUY" else "red" if result['action'] == "SELL" else "yellow"
+
+            summary_table.add_row(
+                result['symbol'],
+                result['timeframe'],
+                f"[{dir_color}]{result['direction']}[/{dir_color}]",
+                f"[{action_color}]{result['action']}[/{action_color}]",
+                f"{result['confidence']}%",
+                result['analysis'][:40] + "..." if len(result['analysis']) > 40 else result['analysis']
+            )
+
+        console.print("\n")
+        console.print(summary_table)
+
     def run_monitoring_cycle(self):
         """Run one monitoring cycle"""
         try:
+            # Clear previous cycle results
+            self.cycle_results = []
+
             # Clean up old charts before starting new cycle
             self._cleanup_old_charts()
-            
+
             for symbol in SYMBOLS:
                 for timeframe in TIMEFRAMES:
                     self.analyze_symbol(symbol, timeframe)
                     time.sleep(2)  # Small delay between analyses
-                    
+
+            # Print summary table at end of cycle
+            self._print_summary_table()
+
         except Exception as e:
             print(f"❌ Error in monitoring cycle: {str(e)}")
             
