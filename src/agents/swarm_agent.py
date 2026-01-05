@@ -70,7 +70,7 @@ SWARM_MODELS = {
     "opus": (True, "claude", "claude-opus-4-5-20251101"),  # 🌙 Moon Dev - Claude Opus 4.5 - Most powerful!
     #"openai": (True, "openai", "gpt-5"),  # GPT-5 - Most advanced model!
     #"ollama_qwen": (True, "ollama", "qwen3:8b"),  # Qwen3 8B via Ollama - Fast local reasoning!
-    "ollama": (True, "ollama", "deepseek-r1"),  # DeepSeek-R1 local model via Ollama
+	"ollama": (True, "ollama", "deepseek-r1:latest"),  # DeepSeek-R1 local model via Ollama
 	"ollama_gemma": (True, "ollama", "gemma:2b"),  # DeepSeek-R1 local model via Ollama
     #"openrouter_qwen": (True, "openrouter", "qwen/qwen3-max"),  # Qwen 3 Max - Powerful reasoning ($1.00/$1.00 per 1M tokens)
 
@@ -94,7 +94,7 @@ DEFAULT_MAX_TOKENS = 2048  # Increased for model compatibility (Gemini/Groq/Qwen
 MODEL_TIMEOUT = 120  # 🌙 Moon Dev - Increased to 120s for more reliability
 
 # Consensus Reviewer - Synthesizes all responses into a clean summary
-CONSENSUS_REVIEWER_MODEL = ("ollama", "deepseek-r1")  # Using DeepSeek Chat API (fast)
+CONSENSUS_REVIEWER_MODEL = ("ollama", "deepseek-r1:latest")  # Using DeepSeek Chat API (fast)
 CONSENSUS_REVIEWER_PROMPT = """You are a consensus analyzer reviewing multiple AI responses.
 
 Below are responses from {num_models} different AI models to the same question.

@@ -15,7 +15,7 @@ class OllamaModel(BaseModel):
     
     # Available Ollama models - can be expanded based on what's installed locally
     AVAILABLE_MODELS = [
-        "deepseek-r1",      # DeepSeek R1 through Ollama (7B by default)
+		"deepseek-r1:latest",      # DeepSeek R1 through Ollama (7B by default)
         "qwen3:8b",         # Qwen 3 8B model - fast reasoning model
         "gemma:2b",         # Google's Gemma 2B model
         "llama3.2",         # Meta's Llama 3.2 model - fast and efficient
