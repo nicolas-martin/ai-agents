@@ -1,6 +1,6 @@
 # Makefile for Chart Analysis Agent
 
-.PHONY: run install clean help
+.PHONY: run polymarket install clean help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -9,6 +9,10 @@
 run:
 	@echo "Activating conda environment: tflow"
 	@bash -c "python -m src.agents.chartanalysis_agent"
+
+# Run the polymarket agent
+polymarket:
+	@bash -c "python -m src.agents.polymarket_agent"
 
 # Install dependencies
 install:
@@ -21,9 +25,10 @@ clean:
 
 # Show help
 help:
-	@echo "Chart Analysis Agent - Available targets:"
+	@echo "AI Agents - Available targets:"
 	@echo ""
-	@echo "  make run      - Run the chart analysis agent"
-	@echo "  make install  - Install dependencies"
-	@echo "  make clean    - Remove generated charts and audio files"
-	@echo "  make help     - Show this help message"
+	@echo "  make run        - Run the chart analysis agent"
+	@echo "  make polymarket - Run the polymarket agent"
+	@echo "  make install    - Install dependencies"
+	@echo "  make clean      - Remove generated charts and audio files"
+	@echo "  make help       - Show this help message"

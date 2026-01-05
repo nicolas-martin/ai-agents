@@ -1,4 +1,6 @@
 """
+🌙 Moon Dev's Model Factory
+Built with love by Moon Dev 🚀
 
 This module manages all available AI models and provides a unified interface.
 """

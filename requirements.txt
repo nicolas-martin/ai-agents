@@ -7,6 +7,12 @@ mplfinance
 
 # AI/LLM
 anthropic
+openai
+groq
+google-generativeai
+
+# Polymarket
+websocket-client
 
 # Utilities
 python-dotenv>=1.0.0

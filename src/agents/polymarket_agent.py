@@ -1,4 +1,7 @@
 """
+🌙 Moon Dev's Polymarket Prediction Market Agent
+Built with love by Moon Dev 🚀
+
 This agent scans Polymarket trades, saves markets to CSV, and uses AI to make predictions.
 NO ACTUAL TRADING - just predictions and analysis for now.
 """

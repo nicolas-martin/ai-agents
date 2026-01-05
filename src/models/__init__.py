@@ -1,5 +1,6 @@
 """
-Model System
+🌙 Moon Dev's Model System
+Built with love by Moon Dev 🚀
 """
 
 from .base_model import BaseModel, ModelResponse
