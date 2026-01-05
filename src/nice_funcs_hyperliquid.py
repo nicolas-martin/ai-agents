@@ -487,10 +487,6 @@ def _get_ohlcv(symbol, interval, start_time, end_time, batch_size=BATCH_SIZE):
         }
     }
 
-    print(f'\n📤 API Request Payload:')
-    print(f'   URL: {BASE_URL}')
-    print(f'   Payload: {request_payload}')
-
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(
@@ -499,10 +495,6 @@ def _get_ohlcv(symbol, interval, start_time, end_time, batch_size=BATCH_SIZE):
                 json=request_payload,
                 timeout=10
             )
-
-            print(f'\n📥 API Response:')
-            print(f'   Status Code: {response.status_code}')
-            print(f'   Response Text: {response.text[:500]}...' if len(response.text) > 500 else f'   Response Text: {response.text}')
 
             if response.status_code == 200:
                 snapshot_data = response.json()
@@ -576,11 +568,11 @@ def _process_data_to_df(snapshot_data):
         numeric_cols = ['open', 'high', 'low', 'close', 'volume']
         df[numeric_cols] = df[numeric_cols].astype('float64')
 
-        print("\n📊 OHLCV Data Types:")
-        print(df.dtypes)
+        # print("\n📊 OHLCV Data Types:")
+        # print(df.dtypes)
 
-        print("\n📈 First 5 rows of data:")
-        print(df.head())
+        # print("\n📈 First 5 rows of data:")
+        # print(df.head())
 
         return df
     return pd.DataFrame()
@@ -620,8 +612,6 @@ def add_technical_indicators(df):
 
 def get_data(symbol, timeframe='15m', bars=100, add_indicators=True):
     """
-    🌙 Moon Dev's Hyperliquid Data Fetcher
-
     Args:
         symbol (str): Trading pair symbol (e.g., 'BTC', 'ETH')
         timeframe (str): Candle timeframe (default: '15m')
@@ -632,16 +622,15 @@ def get_data(symbol, timeframe='15m', bars=100, add_indicators=True):
         pd.DataFrame: OHLCV data with columns [timestamp, open, high, low, close, volume]
                      and technical indicators if requested
     """
-    print("\n🌙 Moon Dev's Hyperliquid Data Fetcher")
-    print(f"🎯 Symbol: {symbol}")
-    print(f"⏰ Timeframe: {timeframe}")
-    print(f"📊 Requested bars: {min(bars, MAX_ROWS)}")
+    print(f"Symbol: {symbol}")
+    print(f"Timeframe: {timeframe}")
+    print(f"Requested bars: {min(bars, MAX_ROWS)}")
 
     # Ensure we don't exceed max rows
     bars = min(bars, MAX_ROWS)
 
     # Calculate time window
-    end_time = datetime.datetime.utcnow()
+    end_time = datetime.datetime.now(datetime.timezone.utc)
     # Add extra time to ensure we get enough bars
     start_time = end_time - timedelta(days=60)
 
@@ -662,10 +651,9 @@ def get_data(symbol, timeframe='15m', bars=100, add_indicators=True):
         if add_indicators:
             df = add_technical_indicators(df)
 
-        print("\n📊 Data summary:")
-        print(f"📈 Total candles: {len(df)}")
+        print("\nData summary:")
+        print(f"Total candles: {len(df)}")
         print(f"📅 Range: {df['timestamp'].min()} to {df['timestamp'].max()}")
-        print("✨ Thanks for using Moon Dev's Data Fetcher! ✨")
 
     return df
 

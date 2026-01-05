@@ -297,7 +297,7 @@ class ChartAnalysisAgent(BaseAgent):
                 print(f"📈 Chart saved to: {chart_path}")
             
             # Create OHLCV table with rich
-            ohlcv_table = Table(title=f"Chart Data for {symbol} {timeframe} - Last 5 Candles")
+            ohlcv_table = Table(title=f"Chart Data for {symbol} {timeframe} - Last 5 Candles", expand=False)
             ohlcv_table.add_column("Time", style="cyan")
             ohlcv_table.add_column("Open", justify="right")
             ohlcv_table.add_column("High", justify="right", style="green")
