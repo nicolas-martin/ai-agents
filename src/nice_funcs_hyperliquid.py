@@ -16,12 +16,11 @@ import json
 import time
 import requests
 import pandas as pd
-import numpy as np
 import pandas_ta as ta
 import datetime
+from typing import cast
 from datetime import timedelta
 from termcolor import colored, cprint
-from eth_account.signers.local import LocalAccount
 import eth_account
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
@@ -540,8 +539,8 @@ def _get_ohlcv(symbol, interval, start_time, end_time, batch_size=BATCH_SIZE):
 def _process_data_to_df(snapshot_data):
     """Convert raw API data to DataFrame"""
     if snapshot_data:
-        columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        data = []
+        columns: pd.Index = pd.Index(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        data: list[list[float | datetime.datetime]] = []
         for snapshot in snapshot_data:
             timestamp = datetime.datetime.utcfromtimestamp(snapshot['t'] / 1000)
             # Convert all numeric values to float
@@ -579,16 +578,18 @@ def add_technical_indicators(df):
         df[numeric_cols] = df[numeric_cols].astype('float64')
 
         # Add basic indicators
-        df['sma_20'] = ta.sma(df['close'], length=20)
-        df['sma_50'] = ta.sma(df['close'], length=50)
-        df['rsi'] = ta.rsi(df['close'], length=14)
+        close_series = cast(pd.Series, df['close'])
+
+        df['sma_20'] = ta.sma(close_series, length=20)
+        df['sma_50'] = ta.sma(close_series, length=50)
+        df['rsi'] = ta.rsi(close_series, length=14)
 
         # Add MACD
-        macd = ta.macd(df['close'])
+        macd = ta.macd(close_series)
         df = pd.concat([df, macd], axis=1)
 
         # Add Bollinger Bands
-        bbands = ta.bbands(df['close'])
+        bbands = ta.bbands(close_series)
         df = pd.concat([df, bbands], axis=1)
 
         return df

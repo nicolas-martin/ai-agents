@@ -63,7 +63,7 @@ Remember:
 """
 
 class ChartAnalysisAgent(BaseAgent):
-    """Chuck the Chart Analysis Agent 📊"""
+    """Chuck the Chart Analysis Agent"""
     
     def __init__(self):
         """Initialize Chuck the Chart Agent"""
@@ -116,32 +116,41 @@ class ChartAnalysisAgent(BaseAgent):
             # Prepare data
             df = data.copy()
             if 'timestamp' in df.columns:
-                df.index = pd.to_datetime(df['timestamp'])
+                df.index = pd.to_datetime(df['timestamp'], utc=True)
             else:
-                df.index = pd.to_datetime(df.index)
+                df.index = pd.to_datetime(df.index, utc=True)
             df.sort_index(inplace=True)
+            if df.index.tz is not None:
+                df.index = df.index.tz_convert('UTC').tz_localize(None)
+            df.index.name = 'Date'
             
             # Check if data is valid
             if df.empty:
-                print("❌ No data available for chart generation")
+                print("No data available for chart generation")
                 return None
                 
             # Indicators are already calculated before calling this helper
             # Create addplot for indicators
             ap = []
             colors = ['blue', 'orange', 'purple']
+            panel_ratios = [8]  # Base price chart height
+            if VOLUME_PANEL:
+                panel_ratios.append(3)  # Dedicated volume height
             for i, sma in enumerate(['SMA20', 'SMA50', 'SMA200']):
                 if sma in INDICATORS and sma in df.columns and not df[sma].isna().all():
                     ap.append(mpf.make_addplot(df[sma], color=colors[i]))
 
             if 'RSI' in INDICATORS and 'RSI' in df.columns and not df['RSI'].isna().all():
-                # Plot RSI on its own lower panel
+                # Plot RSI on its own lower panel (separate from volume)
+                rsi_panel_index = len(panel_ratios)
+                panel_ratios.append(2)
                 ap.append(
                     mpf.make_addplot(
                         df['RSI'],
-                        panel=1,
+                        panel=rsi_panel_index,
                         color='magenta',
-                        ylabel='RSI'
+                        ylabel='RSI (14)',
+                        ylim=(0, 100)
                     )
                 )
             
@@ -155,11 +164,15 @@ class ChartAnalysisAgent(BaseAgent):
                 'style': CHART_STYLE,
                 'volume': VOLUME_PANEL,
                 'title': f"\n{symbol} {timeframe} Chart Analysis",
-                'savefig': chart_path
+                'savefig': chart_path,
+                'datetime_format': '%Y-%m-%d %H:%M',
+                'xrotation': 45
             }
 
             if ap:  # Only add addplot if there are indicators
                 plot_kwargs['addplot'] = ap
+            if len(panel_ratios) > 1:
+                plot_kwargs['panel_ratios'] = tuple(panel_ratios)
 
             mpf.plot(df, **plot_kwargs)
             
@@ -323,29 +336,6 @@ class ChartAnalysisAgent(BaseAgent):
             if chart_path:
                 print(f"📈 Chart saved to: {chart_path}")
             
-            # Create OHLCV table with rich
-            ohlcv_table = Table(title=f"Chart Data for {symbol} {timeframe} - Last 5 Candles", expand=False)
-            ohlcv_table.add_column("Time", style="cyan")
-            ohlcv_table.add_column("Open", justify="right")
-            ohlcv_table.add_column("High", justify="right", style="green")
-            ohlcv_table.add_column("Low", justify="right", style="red")
-            ohlcv_table.add_column("Close", justify="right")
-            ohlcv_table.add_column("Volume", justify="right", style="dim")
-
-            # Add last 5 candles
-            last_5 = data.tail(5)
-            if 'timestamp' in last_5.columns:
-                for idx, row in last_5.iterrows():
-                    time_str = pd.to_datetime(row['timestamp']).strftime('%Y-%m-%d %H:%M')
-                    ohlcv_table.add_row(time_str, f"{row['open']:.2f}", f"{row['high']:.2f}", f"{row['low']:.2f}", f"{row['close']:.2f}", f"{row['volume']:.0f}")
-            else:
-                last_5.index = pd.to_datetime(last_5.index)
-                for idx, row in last_5.iterrows():
-                    time_str = idx.strftime('%Y-%m-%d %H:%M')
-                    ohlcv_table.add_row(time_str, f"{row['open']:.2f}", f"{row['high']:.2f}", f"{row['low']:.2f}", f"{row['close']:.2f}", f"{row['volume']:.0f}")
-
-            console.print(ohlcv_table)
-
             # Technical indicators table
             volume_trend = "Increasing" if data['volume'].iloc[-1] > data['volume'].mean() else "Decreasing"
 
