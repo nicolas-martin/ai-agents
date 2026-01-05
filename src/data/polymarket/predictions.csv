@@ -1,0 +1,2 @@
+analysis_timestamp,analysis_run_id,market_title,market_slug,claude_prediction,opus_prediction,openai_prediction,groq_prediction,gemini_prediction,deepseek_prediction,xai_prediction,ollama_prediction,consensus_prediction,num_models_responded,market_link
+2026-01-05T15:06:42.268910,20260105_150642,"US strikes Iran by January 31, 2026?",us-strikes-iran-by,NO_TRADE,NO,N/A,N/A,N/A,N/A,N/A,N/A,NO (50%),2,https://polymarket.com/event/us-strikes-iran-by

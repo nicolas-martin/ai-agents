@@ -1,0 +1,2 @@
+timestamp,run_id,rank,market_number,market_title,side,consensus,consensus_count,total_models,reasoning,link
+2026-01-05T15:06:54.981141,20260105_150654,1,1,"US strikes Iran by January 31, 2026?",NO/NO_TRADE (Conservative/Bearish),2 out of 2 models agreed,2,2,"Both models agree that a direct US strike on Iran is unlikely or not worth betting on, with one explicitly saying NO and the other recommending NO_TRADE due to the low probability and high uncertainty of this significant military escalation.",https://polymarket.com/event/us-strikes-iran-by
