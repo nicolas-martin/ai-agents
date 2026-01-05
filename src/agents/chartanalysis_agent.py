@@ -1,16 +1,10 @@
 """
-📊 Moon Dev's Chart Analysis Agent
-Built with love by Moon Dev 🌙
-
 Chuck the Chart Agent generates and analyzes trading charts using AI vision capabilities.
 """
 
 import os
 import pandas as pd
-import numpy as np
 import mplfinance as mpf
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
 from pathlib import Path
 import time
 from dotenv import load_dotenv
@@ -18,8 +12,6 @@ import anthropic
 from src import nice_funcs_hyperliquid as hl
 from src.agents.base_agent import BaseAgent
 import traceback
-import base64
-from io import BytesIO
 import re
 
 # Get the project root directory
