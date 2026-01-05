@@ -14,6 +14,9 @@ run:
 polymarket:
 	@bash -c "python -m src.agents.polymarket_agent"
 
+swarm:
+	@bash -c "python src/agents/swarm_agent.py"
+
 # Install dependencies
 install:
 	pip install -r requirements.txt
@@ -29,6 +32,7 @@ help:
 	@echo ""
 	@echo "  make run        - Run the chart analysis agent"
 	@echo "  make polymarket - Run the polymarket agent"
+	@echo "  make swarm 	 - Run the swarm agent"
 	@echo "  make install    - Install dependencies"
 	@echo "  make clean      - Remove generated charts and audio files"
 	@echo "  make help       - Show this help message"
