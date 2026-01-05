@@ -412,7 +412,7 @@ class ChartAnalysisAgent(BaseAgent):
         summary_table.add_column("Direction", justify="center")
         summary_table.add_column("Action", justify="center")
         summary_table.add_column("Confidence", justify="right")
-        summary_table.add_column("Analysis", max_width=40)
+        summary_table.add_column("Analysis", overflow="fold")
 
         for result in self.cycle_results:
             dir_color = "green" if result['direction'] == "BULLISH" else "red" if result['direction'] == "BEARISH" else "yellow"
@@ -424,7 +424,7 @@ class ChartAnalysisAgent(BaseAgent):
                 f"[{dir_color}]{result['direction']}[/{dir_color}]",
                 f"[{action_color}]{result['action']}[/{action_color}]",
                 f"{result['confidence']}%",
-                result['analysis'][:40] + "..." if len(result['analysis']) > 40 else result['analysis']
+                result['analysis']
             )
 
         console.print("\n")
