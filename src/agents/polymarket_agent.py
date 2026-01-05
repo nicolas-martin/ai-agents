@@ -31,7 +31,6 @@ MIN_TRADE_SIZE_USD = 500  # Only track trades over this amount
 IGNORE_PRICE_THRESHOLD = 0.02  # Ignore trades within X cents of resolution ($0 or $1)
 LOOKBACK_HOURS = 24  # How many hours back to fetch historical trades on startup
 
-# 🌙 Moon Dev - Market category filters (case-insensitive)
 IGNORE_CRYPTO_KEYWORDS = [
     'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol',
     'dogecoin', 'doge', 'shiba', 'cardano', 'ada', 'ripple', 'xrp',
@@ -57,10 +56,7 @@ MARKETS_TO_ANALYZE = 3  # Number of recent markets to send to AI
 MARKETS_TO_DISPLAY = 20  # Number of recent markets to print after each update
 REANALYSIS_HOURS = 8  # Re-analyze markets after this many hours (even if previously analyzed)
 
-# AI Configuration
-USE_SWARM_MODE = True  # Use swarm AI (multiple models) instead of single XAI model
-AI_MODEL_PROVIDER = "xai"  # Model to use if USE_SWARM_MODE = False
-AI_MODEL_NAME = "grok-2-fast-reasoning"  # Model name if not using swarm
+# AI configuration - always run in swarm mode
 SEND_PRICE_INFO_TO_AI = False  # Send market price/odds to AI models (True = include price, False = no price)
 
 # 🌙 Moon Dev - AI Prompts (customize these for your own edge!)
@@ -159,22 +155,16 @@ class PolymarketAgent:
         self.ignored_crypto_count = 0
         self.ignored_sports_count = 0
 
-        # Initialize AI models
-        if USE_SWARM_MODE:
-            cprint("🤖 Using SWARM MODE - Multiple AI models", "green")
-            try:
-                from src.agents.swarm_agent import SwarmAgent
-                self.swarm = SwarmAgent()
-                cprint("✅ Swarm agent loaded successfully", "green")
-            except Exception as e:
-                cprint(f"❌ Failed to load swarm agent: {e}", "red")
-                cprint("💡 Falling back to single model mode", "yellow")
-                self.swarm = None
-                self.model = ModelFactory().get_model(AI_MODEL_PROVIDER, AI_MODEL_NAME)
-        else:
-            cprint(f"🤖 Using single model: {AI_MODEL_PROVIDER}/{AI_MODEL_NAME}", "green")
-            self.model = ModelFactory().get_model(AI_MODEL_PROVIDER, AI_MODEL_NAME)
-            self.swarm = None
+        # Initialize AI models (swarm only)
+        self.swarm = None
+        cprint("🤖 Using SWARM MODE - Multiple AI models", "green")
+        try:
+            from src.agents.swarm_agent import SwarmAgent
+            self.swarm = SwarmAgent()
+            cprint("✅ Swarm agent loaded successfully", "green")
+        except Exception as e:
+            cprint(f"❌ Failed to load swarm agent: {e}", "red")
+            raise RuntimeError("Swarm mode is required for the Polymarket agent") from e
 
         # Initialize markets DataFrame
         self.markets_df = self._load_markets()
@@ -616,126 +606,82 @@ class PolymarketAgent:
 
 Provide predictions for each market in the specified format."""
 
-        if USE_SWARM_MODE and self.swarm:
-            # Use swarm mode - get predictions from multiple AIs
-            cprint("\n🌊 Getting predictions from AI swarm (120s timeout per model)...\n", "cyan")
+        if not self.swarm:
+            cprint("❌ Swarm agent unavailable - cannot run analysis", "red")
+            return
 
-            # Query the swarm (swarm handles timeouts gracefully and returns partial results)
-            cprint("📡 Moon Dev sending prompts to swarm...", "cyan")
-            swarm_result = self.swarm.query(
-                prompt=user_prompt,
-                system_prompt=system_prompt
+        # Use swarm mode - get predictions from multiple AIs
+        cprint("\n🌊 Getting predictions from AI swarm (120s timeout per model)...\n", "cyan")
+
+        # Query the swarm (swarm handles timeouts gracefully and returns partial results)
+        cprint("📡 Moon Dev sending prompts to swarm...", "cyan")
+        swarm_result = self.swarm.query(
+            prompt=user_prompt,
+            system_prompt=system_prompt
+        )
+
+        # Check if we got any responses
+        if not swarm_result or not swarm_result.get('responses'):
+            cprint("❌ No responses from swarm - all models failed or timed out", "red")
+            return
+
+        # Count successful responses
+        successful_responses = [
+            name for name, data in swarm_result.get('responses', {}).items()
+            if data.get('success')
+        ]
+
+        if not successful_responses:
+            cprint("❌ All AI models failed - no predictions available", "red")
+            return
+
+        cprint(f"\n✅ Received {len(successful_responses)}/{len(swarm_result['responses'])} successful responses from swarm!\n", "green", attrs=['bold'])
+
+        # Display individual AI responses as they arrive
+        cprint("="*80, "yellow")
+        cprint("🤖 Individual AI Predictions", "yellow", attrs=['bold'])
+        cprint("="*80, "yellow")
+
+        for model_name, model_data in swarm_result.get('responses', {}).items():
+            if model_data.get('success'):
+                response_time = model_data.get('response_time', 0)
+                cprint(f"\n{'='*80}", "cyan")
+                cprint(f"✅ {model_name.upper()} ({response_time:.1f}s)", "cyan", attrs=['bold'])
+                cprint(f"{'='*80}", "cyan")
+                cprint(model_data.get('response', 'No response'), "white")
+            else:
+                error = model_data.get('error', 'Unknown error')
+                cprint(f"\n❌ {model_name.upper()} - FAILED: {error}", "red", attrs=['bold'])
+
+        # Calculate and display consensus (pass markets for title mapping)
+        consensus_text = self._calculate_polymarket_consensus(swarm_result, markets_to_analyze)
+
+        cprint("\n" + "="*80, "green")
+        cprint("🎯 CONSENSUS ANALYSIS", "green", attrs=['bold'])
+        cprint(f"Based on {len(successful_responses)} AI models", "green")
+        cprint("="*80, "green")
+        cprint(consensus_text, "white")
+        cprint("="*80 + "\n", "green")
+
+        # 🌙 Moon Dev - Run final consensus AI to pick top 3 markets
+        self._get_top_consensus_picks(swarm_result, markets_to_analyze)
+
+        # Save predictions to database
+        try:
+            self._save_swarm_predictions(
+                analysis_run_id=analysis_run_id,
+                analysis_timestamp=analysis_timestamp,
+                markets=markets_to_analyze,
+                swarm_result=swarm_result
             )
+            cprint(f"\n📁 Predictions saved to: {PREDICTIONS_CSV}", "cyan", attrs=['bold'])
+        except Exception as e:
+            cprint(f"❌ Error saving predictions: {e}", "red")
+            import traceback
+            traceback.print_exc()
 
-            # Check if we got any responses
-            if not swarm_result or not swarm_result.get('responses'):
-                cprint("❌ No responses from swarm - all models failed or timed out", "red")
-                return
-
-            # Count successful responses
-            successful_responses = [
-                name for name, data in swarm_result.get('responses', {}).items()
-                if data.get('success')
-            ]
-
-            if not successful_responses:
-                cprint("❌ All AI models failed - no predictions available", "red")
-                return
-
-            cprint(f"\n✅ Received {len(successful_responses)}/{len(swarm_result['responses'])} successful responses from swarm!\n", "green", attrs=['bold'])
-
-            # Display individual AI responses as they arrive
-            cprint("="*80, "yellow")
-            cprint("🤖 Individual AI Predictions", "yellow", attrs=['bold'])
-            cprint("="*80, "yellow")
-
-            for model_name, model_data in swarm_result.get('responses', {}).items():
-                if model_data.get('success'):
-                    response_time = model_data.get('response_time', 0)
-                    cprint(f"\n{'='*80}", "cyan")
-                    cprint(f"✅ {model_name.upper()} ({response_time:.1f}s)", "cyan", attrs=['bold'])
-                    cprint(f"{'='*80}", "cyan")
-                    cprint(model_data.get('response', 'No response'), "white")
-                else:
-                    error = model_data.get('error', 'Unknown error')
-                    cprint(f"\n❌ {model_name.upper()} - FAILED: {error}", "red", attrs=['bold'])
-
-            # Calculate and display consensus (pass markets for title mapping)
-            consensus_text = self._calculate_polymarket_consensus(swarm_result, markets_to_analyze)
-
-            cprint("\n" + "="*80, "green")
-            cprint("🎯 CONSENSUS ANALYSIS", "green", attrs=['bold'])
-            cprint(f"Based on {len(successful_responses)} AI models", "green")
-            cprint("="*80, "green")
-            cprint(consensus_text, "white")
-            cprint("="*80 + "\n", "green")
-
-            # 🌙 Moon Dev - Run final consensus AI to pick top 3 markets
-            self._get_top_consensus_picks(swarm_result, markets_to_analyze)
-
-            # Save predictions to database
-            try:
-                self._save_swarm_predictions(
-                    analysis_run_id=analysis_run_id,
-                    analysis_timestamp=analysis_timestamp,
-                    markets=markets_to_analyze,
-                    swarm_result=swarm_result
-                )
-                cprint(f"\n📁 Predictions saved to: {PREDICTIONS_CSV}", "cyan", attrs=['bold'])
-            except Exception as e:
-                cprint(f"❌ Error saving predictions: {e}", "red")
-                import traceback
-                traceback.print_exc()
-
-            # 🌙 Moon Dev - Mark analyzed markets with timestamp
-            self._mark_markets_analyzed(markets_to_analyze, analysis_timestamp)
-        else:
-            # Use single model
-            cprint(f"\n🤖 Getting predictions from {AI_MODEL_PROVIDER}/{AI_MODEL_NAME}...\n", "cyan")
-
-            try:
-                response = self.model.generate_response(
-                    system_prompt=system_prompt,
-                    user_content=user_prompt,
-                    temperature=0.7
-                )
-
-                cprint("="*80, "green")
-                cprint("🎯 AI PREDICTION", "green", attrs=['bold'])
-                cprint("="*80, "green")
-                cprint(response.content, "white")
-                cprint("="*80 + "\n", "green")
-
-                # Save single model prediction
-                prediction_summary = response.content.split('\n')[0][:200] if response.content else 'No response'
-                prediction_record = {
-                    'analysis_timestamp': analysis_timestamp,
-                    'analysis_run_id': analysis_run_id,
-                    'market_title': f"Analyzed {len(markets_to_analyze)} markets",
-                    'market_slug': 'batch_analysis',
-                    'claude_prediction': 'N/A',
-                    'openai_prediction': 'N/A',
-                    'groq_prediction': 'N/A',
-                    'gemini_prediction': 'N/A',
-                    'deepseek_prediction': 'N/A',
-                    'xai_prediction': prediction_summary if AI_MODEL_PROVIDER == 'xai' else 'N/A',
-                    'ollama_prediction': 'N/A',
-                    'consensus_prediction': prediction_summary,
-                    'num_models_responded': 1
-                }
-
-                self.predictions_df = pd.concat([
-                    self.predictions_df,
-                    pd.DataFrame([prediction_record])
-                ], ignore_index=True)
-                self._save_predictions()
-                cprint(f"✅ Saved analysis run {analysis_run_id} to predictions database", "green")
-
-                # 🌙 Moon Dev - Mark analyzed markets with timestamp
-                self._mark_markets_analyzed(markets_to_analyze, analysis_timestamp)
-
-            except Exception as e:
-                cprint(f"❌ Error getting prediction: {e}", "red")
+        # 🌙 Moon Dev - Mark analyzed markets with timestamp
+        self._mark_markets_analyzed(markets_to_analyze, analysis_timestamp)
 
     def _mark_markets_analyzed(self, markets, analysis_timestamp):
         """🌙 Moon Dev - Mark markets as analyzed with timestamp
@@ -1427,7 +1373,7 @@ def main():
     cprint(f"   🤖 Analysis Thread: Every {ANALYSIS_CHECK_INTERVAL_SECONDS}s - Checks for new markets", "magenta")
     cprint(f"   🎯 AI Analysis triggers when {NEW_MARKETS_FOR_ANALYSIS} new markets collected", "yellow")
     cprint("", "yellow")
-    cprint(f"🤖 AI Mode: {'SWARM (7 models)' if USE_SWARM_MODE else 'Single Model'}", "yellow")
+    cprint("🤖 AI Mode: SWARM (multi-model only)", "yellow")
     cprint(f"💰 Price Info to AI: {'ENABLED' if SEND_PRICE_INFO_TO_AI else 'DISABLED'}", "green" if SEND_PRICE_INFO_TO_AI else "yellow")
     cprint("", "yellow")
     cprint("📁 Data Files:", "cyan", attrs=['bold'])
