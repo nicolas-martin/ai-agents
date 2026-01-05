@@ -4,6 +4,7 @@ Chuck the Chart Agent generates and analyzes trading charts using AI vision capa
 
 import os
 import pandas as pd
+import pandas_ta as ta
 import mplfinance as mpf
 from pathlib import Path
 import time
@@ -16,6 +17,7 @@ import re
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from typing import cast, Dict, Optional
 
 # Rich console for pretty output
 console = Console()
@@ -34,7 +36,7 @@ SYMBOLS = ["BTC", "SOL"]  # Add or modify symbols here
 # Chart Settings
 CHART_STYLE = 'charles'  # mplfinance style
 VOLUME_PANEL = True  # Show volume panel
-INDICATORS = ['SMA20', 'SMA50', 'SMA200', 'RSI', 'MACD']  # Technical indicators to display
+INDICATORS = ['SMA20', 'SMA50', 'SMA200', 'RSI']  # Technical indicators to display
 
 # AI Settings - Override config.py if set
 from src import config
@@ -113,27 +115,35 @@ class ChartAnalysisAgent(BaseAgent):
         try:
             # Prepare data
             df = data.copy()
-            df.index = pd.to_datetime(df.index)
+            if 'timestamp' in df.columns:
+                df.index = pd.to_datetime(df['timestamp'])
+            else:
+                df.index = pd.to_datetime(df.index)
+            df.sort_index(inplace=True)
             
             # Check if data is valid
             if df.empty:
                 print("❌ No data available for chart generation")
                 return None
                 
-            # Calculate indicators
-            if 'SMA20' in INDICATORS:
-                df['SMA20'] = df['close'].rolling(window=20).mean()
-            if 'SMA50' in INDICATORS:
-                df['SMA50'] = df['close'].rolling(window=50).mean()
-            if 'SMA200' in INDICATORS:
-                df['SMA200'] = df['close'].rolling(window=200).mean()
-            
+            # Indicators are already calculated before calling this helper
             # Create addplot for indicators
             ap = []
             colors = ['blue', 'orange', 'purple']
             for i, sma in enumerate(['SMA20', 'SMA50', 'SMA200']):
                 if sma in INDICATORS and sma in df.columns and not df[sma].isna().all():
                     ap.append(mpf.make_addplot(df[sma], color=colors[i]))
+
+            if 'RSI' in INDICATORS and 'RSI' in df.columns and not df['RSI'].isna().all():
+                # Plot RSI on its own lower panel
+                ap.append(
+                    mpf.make_addplot(
+                        df['RSI'],
+                        panel=1,
+                        color='magenta',
+                        ylabel='RSI'
+                    )
+                )
             
             # Save chart
             filename = f"{symbol}_{timeframe}_{int(time.time())}.png"
@@ -159,17 +169,63 @@ class ChartAnalysisAgent(BaseAgent):
             print(f"❌ Error generating chart: {str(e)}")
             traceback.print_exc()
             return None
+
+    def _calculate_indicator(self, data: pd.DataFrame, indicator: str) -> None:
+        """Ensure a specific indicator column exists on the dataframe"""
+        indicator = indicator.upper()
+        close_series = cast(pd.Series, data['close'])
+
+        if indicator.startswith('SMA') and indicator[3:].isdigit():
+            period = int(indicator[3:])
+            if indicator not in data.columns:
+                data[indicator] = close_series.rolling(window=period).mean()
+            return
+
+        if indicator.startswith('EMA') and indicator[3:].isdigit():
+            period = int(indicator[3:])
+            if indicator not in data.columns:
+                data[indicator] = ta.ema(close_series, length=period).rename(indicator)
+            return
+
+        if indicator == 'RSI':
+            if 'RSI' not in data.columns:
+                data['RSI'] = ta.rsi(close_series, length=14).rename('RSI')
+            return
+
+    def _format_indicator_value(self, data: pd.DataFrame, indicator: str) -> Optional[str]:
+        """Return a friendly string for the latest value of the indicator"""
+        indicator = indicator.upper()
+
+        if indicator in data.columns and (indicator.startswith('SMA') or indicator.startswith('EMA') or indicator == 'VWAP'):
+            latest = data[indicator].iloc[-1]
+            return f"{latest:.2f}" if not pd.isna(latest) else "Not enough data"
+
+        if indicator == 'RSI' and 'RSI' in data.columns:
+            latest = data['RSI'].iloc[-1]
+            return f"{latest:.2f}" if not pd.isna(latest) else "Not enough data"
+
+        return None
+
+    def _get_indicator_snapshot(self, data: pd.DataFrame) -> Dict[str, str]:
+        """Compute and format all configured indicators"""
+        snapshot: Dict[str, str] = {}
+        for indicator in INDICATORS:
+            normalized = indicator.upper()
+            self._calculate_indicator(data, normalized)
+            formatted_value = self._format_indicator_value(data, normalized)
+            if formatted_value:
+                snapshot[indicator] = formatted_value
+        return snapshot
             
-    def _analyze_chart(self, symbol, timeframe, data):
+    def _analyze_chart(self, symbol, timeframe, data, indicators_snapshot: Dict[str, str]):
         """Analyze chart data using Claude"""
         try:
             # Format the chart data
+            indicator_lines = "\n".join(f"- {name}: {value}" for name, value in indicators_snapshot.items()) or "No indicators available"
             chart_data = (
                 f"Recent price action (last 5 candles):\n{data.tail(5).to_string()}\n\n"
                 f"Technical Indicators:\n"
-                f"- SMA20: {data['SMA20'].iloc[-1]:.2f}\n"
-                f"- SMA50: {data['SMA50'].iloc[-1]:.2f}\n"
-                f"- SMA200: {data['SMA200'].iloc[-1] if not pd.isna(data['SMA200'].iloc[-1]) else 'Not enough data'}\n"
+                f"{indicator_lines}\n\n"
                 f"Current price: {data['close'].iloc[-1]:.2f}\n"
                 f"24h High: {data['high'].max():.2f}\n"
                 f"24h Low: {data['low'].min():.2f}\n"
@@ -260,14 +316,8 @@ class ChartAnalysisAgent(BaseAgent):
             if data is None or data.empty:
                 print(f"❌ No data available for {symbol} {timeframe}")
                 return
-                
-            # Calculate additional indicators
-            if 'SMA20' not in data.columns:
-                data['SMA20'] = data['close'].rolling(window=20).mean()
-            if 'SMA50' not in data.columns:
-                data['SMA50'] = data['close'].rolling(window=50).mean()
-            if 'SMA200' not in data.columns:
-                data['SMA200'] = data['close'].rolling(window=200).mean()
+
+            indicators_snapshot = self._get_indicator_snapshot(data)
             
             chart_path = self._generate_chart(symbol, timeframe, data)
             if chart_path:
@@ -296,22 +346,28 @@ class ChartAnalysisAgent(BaseAgent):
 
             console.print(ohlcv_table)
 
-            # Technical indicators panel
-            sma200_val = f"{data['SMA200'].iloc[-1]:.2f}" if not pd.isna(data['SMA200'].iloc[-1]) else "Not enough data"
+            # Technical indicators table
             volume_trend = "Increasing" if data['volume'].iloc[-1] > data['volume'].mean() else "Decreasing"
 
-            indicators_text = f"""[cyan]SMA20:[/cyan] {data['SMA20'].iloc[-1]:.2f}
-[cyan]SMA50:[/cyan] {data['SMA50'].iloc[-1]:.2f}
-[cyan]SMA200:[/cyan] {sma200_val}
-[cyan]24h High:[/cyan] [green]{data['high'].max():.2f}[/green]
-[cyan]24h Low:[/cyan] [red]{data['low'].min():.2f}[/red]
-[cyan]Volume Trend:[/cyan] {volume_trend}"""
+            indicators_table = Table(title="Technical Indicators", expand=False)
+            indicators_table.add_column("Indicator", style="cyan")
+            indicators_table.add_column("Value", justify="right")
 
-            console.print(Panel(indicators_text, title="Technical Indicators", border_style="blue", expand=False))
+            if indicators_snapshot:
+                for name, value in indicators_snapshot.items():
+                    indicators_table.add_row(name, value)
+            else:
+                indicators_table.add_row("Indicators", "Not available")
+
+            indicators_table.add_row("24h High", f"{data['high'].max():.2f}")
+            indicators_table.add_row("24h Low", f"{data['low'].min():.2f}")
+            indicators_table.add_row("Volume Trend", volume_trend)
+
+            console.print(indicators_table)
 
             # Analyze with AI
             console.print(f"\n[bold]Analyzing {symbol} {timeframe}...[/bold]")
-            analysis = self._analyze_chart(symbol, timeframe, data)
+            analysis = self._analyze_chart(symbol, timeframe, data, indicators_snapshot)
 
             if analysis and all(k in analysis for k in ['direction', 'analysis', 'action', 'confidence']):
                 # Color-code direction and action
