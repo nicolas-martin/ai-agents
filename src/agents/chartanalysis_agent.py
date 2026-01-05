@@ -15,7 +15,6 @@ from pathlib import Path
 import time
 from dotenv import load_dotenv
 import anthropic
-import openai
 from src import nice_funcs_hyperliquid as hl
 from src.agents.base_agent import BaseAgent
 import traceback
@@ -44,13 +43,8 @@ from src import config
 
 # Only set these if you want to override config.py settings
 AI_MODEL = False  # Set to model name to override config.AI_MODEL
-AI_TEMPERATURE = 0  # Set > 0 to override config.AI_TEMPERATURE 
+AI_TEMPERATURE = 0  # Set > 0 to override config.AI_TEMPERATURE
 AI_MAX_TOKENS = 0  # Set > 0 to override config.AI_MAX_TOKENS
-
-# Voice settings
-VOICE_MODEL = "tts-1"
-VOICE_NAME = "shimmer" # Options: alloy, echo, fable, onyx, nova, shimmer
-VOICE_SPEED = 1.0
 
 # AI Analysis Prompt
 CHART_ANALYSIS_PROMPT = """You must respond in exactly 3 lines:
