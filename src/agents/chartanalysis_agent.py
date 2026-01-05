@@ -71,21 +71,17 @@ class ChartAnalysisAgent(BaseAgent):
         
         # Set up directories
         self.charts_dir = PROJECT_ROOT / "src" / "data" / "charts"
-        self.audio_dir = PROJECT_ROOT / "src" / "audio"
         self.charts_dir.mkdir(parents=True, exist_ok=True)
-        self.audio_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Load environment variables
         load_dotenv()
-        
-        # Initialize API clients
-        openai_key = os.getenv("OPENAI_KEY")
+
+        # Initialize API client
         anthropic_key = os.getenv("ANTHROPIC_KEY")
-        
-        if not openai_key or not anthropic_key:
-            raise ValueError("🚨 API keys not found in environment variables!")
-            
-        self.openai_client = openai.OpenAI(api_key=openai_key)  # For TTS only
+
+        if not anthropic_key:
+            raise ValueError("🚨 ANTHROPIC_KEY not found in environment variables!")
+
         self.client = anthropic.Anthropic(api_key=anthropic_key)
         
         # Set AI parameters - use config values unless overridden
@@ -250,56 +246,7 @@ class ChartAnalysisAgent(BaseAgent):
             print(f"❌ Error in chart analysis: {str(e)}")
             traceback.print_exc()
             return None
-            
-    def _format_announcement(self, symbol, timeframe, analysis):
-        """Format analysis into speech-friendly message"""
-        try:
-            if not analysis:
-                return None
-                
-            # Convert timeframe to speech-friendly format
-            friendly_timeframe = timeframe.replace('m', ' minute').replace('h', ' hour').replace('d', ' day')
-                
-            message = (
-                f"hi, Moon Dev seven seven seven! Chart analysis for {symbol} on the {friendly_timeframe} timeframe! "
-                f"The trend is {analysis['direction']}. {analysis['analysis']} "
-                f"AI suggests to {analysis['action']} with {analysis['confidence']}% confidence! "
-            )
-            
-            return message
-            
-        except Exception as e:
-            print(f"❌ Error formatting announcement: {str(e)}")
-            return None
-            
-    def _announce(self, message):
-        """Announce message using OpenAI TTS"""
-        if not message:
-            return
-            
-        try:
-            print(f"\n📢 Announcing: {message}")
-            
-            # Generate speech
-            response = self.openai_client.audio.speech.create(
-                model=VOICE_MODEL,
-                voice=VOICE_NAME,
-                input=message,
-                speed=VOICE_SPEED
-            )
-            
-            # Save audio file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            audio_file = self.audio_dir / f"chart_alert_{timestamp}.mp3"
-            
-            response.stream_to_file(str(audio_file))
-            
-            # Play audio
-            os.system(f"afplay {audio_file}")
-            
-        except Exception as e:
-            print(f"❌ Error in announcement: {str(e)}")
-            
+
     def analyze_symbol(self, symbol, timeframe):
         """Analyze a single symbol on a specific timeframe"""
         try:
@@ -366,11 +313,6 @@ class ChartAnalysisAgent(BaseAgent):
             analysis = self._analyze_chart(symbol, timeframe, data)
             
             if analysis and all(k in analysis for k in ['direction', 'analysis', 'action', 'confidence']):
-                # Format and announce
-                message = self._format_announcement(symbol, timeframe, analysis)
-                if message:
-                    self._announce(message)
-                    
                 # Print analysis in a nice box
                 print("\n" + "╔" + "═" * 50 + "╗")
                 print(f"║    🌙 Moon Dev's Chart Analysis - {symbol} {timeframe}   ║")

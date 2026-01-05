@@ -7,7 +7,6 @@ mplfinance==0.12.10b0
 
 # AI/LLM
 anthropic==0.40.0
-openai==2.6.1
 
 # Technical Analysis
 pandas-ta==0.3.14b0
