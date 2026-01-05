@@ -16,7 +16,6 @@ import time
 from dotenv import load_dotenv
 import anthropic
 import openai
-from src import nice_funcs as n
 from src import nice_funcs_hyperliquid as hl
 from src.agents.base_agent import BaseAgent
 import traceback
