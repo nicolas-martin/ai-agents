@@ -4,228 +4,199 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an experimental AI trading system that orchestrates 48+ specialized AI agents to analyze markets, execute strategies, and manage risk across cryptocurrency markets (primarily Solana). The project uses a modular agent architecture with unified LLM provider abstraction supporting Claude, GPT-4, DeepSeek, Groq, Gemini, and local Ollama models.
+This is a minimal Chart Analysis Agent that generates and analyzes trading charts using AI vision capabilities. The agent monitors specified cryptocurrency symbols on HyperLiquid, generates candlestick charts with technical indicators, and provides AI-powered analysis with trading recommendations.
 
-## Key Development Commands
+## Quick Start
 
 ### Environment Setup
 ```bash
 # Use existing conda environment (DO NOT create new virtual environments)
 conda activate tflow
 
-# Install/update dependencies
+# Install dependencies
 pip install -r requirements.txt
-
-# IMPORTANT: Update requirements.txt every time you add a new package
-pip freeze > requirements.txt
 ```
 
-### Running the System
+### Environment Variables
+Create a `.env` file in the project root with:
 ```bash
-# Run main orchestrator (controls multiple agents)
-python src/main.py
-
-# Run individual agents standalone
-python src/agents/trading_agent.py
-python src/agents/risk_agent.py
-python src/agents/rbi_agent.py
-python src/agents/chat_agent.py
-# ... any agent in src/agents/ can run independently
+ANTHROPIC_KEY=your_anthropic_api_key_here
+OPENAI_KEY=your_openai_api_key_here
+HYPER_LIQUID_ETH_PRIVATE_KEY=your_hyperliquid_private_key_here
 ```
 
-### Backtesting
+### Running the Agent
 ```bash
-# Use backtesting.py library with pandas_ta or talib for indicators
-# Sample OHLCV data available at:
-# /Users/md/Dropbox/dev/github/moon-dev-ai-agents-for-trading/src/data/rbi/BTC-USD-15m.csv
+# Run the chart analysis agent
+python src/agents/chartanalysis_agent.py
 ```
 
-## Architecture Overview
+## Project Structure
 
-### Core Structure
 ```
-src/
-├── agents/              # 48+ specialized AI agents (each <800 lines)
-├── models/              # LLM provider abstraction (ModelFactory pattern)
-├── strategies/          # User-defined trading strategies
-├── scripts/             # Standalone utility scripts
-├── data/                # Agent outputs, memory, analysis results
-├── config.py            # Global configuration (positions, risk limits, API settings)
-├── main.py              # Main orchestrator for multi-agent loop
-├── nice_funcs.py        # ~1,200 lines of shared trading utilities
-├── nice_funcs_hl.py     # Hyperliquid-specific utilities
-└── ezbot.py             # Legacy trading controller
+├── src/
+│   ├── agents/
+│   │   ├── base_agent.py              # Base class for agents
+│   │   └── chartanalysis_agent.py     # Chart analysis agent (main)
+│   ├── config.py                       # AI model configuration
+│   ├── nice_funcs_hyperliquid.py      # HyperLiquid data fetching utilities
+│   └── data/                           # Runtime data (charts, audio)
+├── requirements.txt                     # Python dependencies
+├── .env_example                        # Example environment variables
+└── README.md                           # Project documentation
 ```
 
-### Agent Ecosystem
+## Chart Analysis Agent
 
-**Trading Agents**: `trading_agent`, `strategy_agent`, `risk_agent`, `copybot_agent`
-**Market Analysis**: `sentiment_agent`, `whale_agent`, `funding_agent`, `liquidation_agent`, `chartanalysis_agent`
-**Content Creation**: `chat_agent`, `clips_agent`, `tweet_agent`, `video_agent`, `phone_agent`
-**Strategy Development**: `rbi_agent` (Research-Based Inference - codes backtests from videos/PDFs), `research_agent`
-**Specialized**: `sniper_agent`, `solana_agent`, `tx_agent`, `million_agent`, `tiktok_agent`, `compliance_agent`
+The Chart Analysis Agent (`chartanalysis_agent.py`) is the core of this project.
 
-Each agent can run independently or as part of the main orchestrator loop.
+### Features
+- **Multi-timeframe Analysis**: Analyzes charts on 15m, 1h, 4h, and 1d timeframes
+- **Technical Indicators**: SMA20, SMA50, SMA200, RSI, MACD, Bollinger Bands
+- **AI-Powered Analysis**: Uses Claude to analyze chart patterns and provide trading signals
+- **Voice Announcements**: Text-to-speech announcements via OpenAI TTS
+- **Automated Monitoring**: Runs continuously with configurable check intervals
 
-### LLM Integration (Model Factory)
+### Configuration (chartanalysis_agent.py)
 
-Located at `src/models/model_factory.py` and `src/models/README.md`
-
-**Unified Interface**: All agents use `ModelFactory.create_model()` for consistent LLM access
-**Supported Providers**: Anthropic Claude (default), OpenAI, DeepSeek, Groq, Google Gemini, Ollama (local)
-**Key Pattern**:
+Key settings at the top of the file:
 ```python
-from src.models.model_factory import ModelFactory
-
-model = ModelFactory.create_model('anthropic')  # or 'openai', 'deepseek', 'groq', etc.
-response = model.generate_response(system_prompt, user_content, temperature, max_tokens)
+CHECK_INTERVAL_MINUTES = 10        # How often to run analysis
+TIMEFRAMES = ['15m', '1h', '4h', '1d']  # Timeframes to analyze
+LOOKBACK_BARS = 15                 # Number of candles to analyze
+SYMBOLS = ["BTC", "FARTCOIN"]      # Symbols to monitor
 ```
 
-### Configuration Management
-
-**Primary Config**: `src/config.py`
-- Trading settings: `MONITORED_TOKENS`, `EXCLUDED_TOKENS`, position sizing (`usd_size`, `max_usd_order_size`)
-- Risk management: `CASH_PERCENTAGE`, `MAX_POSITION_PERCENTAGE`, `MAX_LOSS_USD`, `MAX_GAIN_USD`, `MINIMUM_BALANCE_USD`
-- Agent behavior: `SLEEP_BETWEEN_RUNS_MINUTES`, `ACTIVE_AGENTS` dict in `main.py`
-- AI settings: `AI_MODEL`, `AI_MAX_TOKENS`, `AI_TEMPERATURE`
-
-**Environment Variables**: `.env` (see `.env_example`)
-- Trading APIs: `BIRDEYE_API_KEY`, `MOONDEV_API_KEY`, `COINGECKO_API_KEY`
-- AI Services: `ANTHROPIC_KEY`, `OPENAI_KEY`, `DEEPSEEK_KEY`, `GROQ_API_KEY`, `GEMINI_KEY`
-- Blockchain: `SOLANA_PRIVATE_KEY`, `HYPER_LIQUID_ETH_PRIVATE_KEY`, `RPC_ENDPOINT`
-
-### Shared Utilities
-
-**`src/nice_funcs.py`** (~1,200 lines): Core trading functions
-- Data: `token_overview()`, `token_price()`, `get_position()`, `get_ohlcv_data()`
-- Trading: `market_buy()`, `market_sell()`, `chunk_kill()`, `open_position()`
-- Analysis: Technical indicators, PnL calculations, rug pull detection
-
-**`src/agents/api.py`**: `MoonDevAPI` class for custom Moon Dev API endpoints
-- `get_liquidation_data()`, `get_funding_data()`, `get_oi_data()`, `get_copybot_follow_list()`
-
-### Data Flow Pattern
-
-```
-Config/Input → Agent Init → API Data Fetch → Data Parsing →
-LLM Analysis (via ModelFactory) → Decision Output →
-Result Storage (CSV/JSON in src/data/) → Optional Trade Execution
+AI Settings (can override config.py):
+```python
+AI_MODEL = False              # Set to model name to override config.AI_MODEL
+AI_TEMPERATURE = 0            # Set > 0 to override config.AI_TEMPERATURE
+AI_MAX_TOKENS = 0             # Set > 0 to override config.AI_MAX_TOKENS
 ```
 
-## Development Rules
+### How It Works
 
-### File Management
-- **Keep files under 800 lines** - if longer, split into new files and update README
-- **DO NOT move files without asking** - you can create new files but no moving
-- **NEVER create new virtual environments** - use existing `conda activate tflow`
-- **Update requirements.txt** after adding any new package
+1. **Data Collection**: Fetches OHLCV data from HyperLiquid via `nice_funcs_hyperliquid.py`
+2. **Chart Generation**: Creates candlestick charts with technical indicators using mplfinance
+3. **AI Analysis**: Claude analyzes the chart data and provides:
+   - Trading direction (BULLISH/BEARISH/SIDEWAYS)
+   - Action recommendation (BUY/SELL/NOTHING)
+   - Confidence level (0-100%)
+   - Brief reasoning
+4. **Voice Announcement**: Converts analysis to speech via OpenAI TTS
+5. **Continuous Monitoring**: Repeats at configured intervals
 
-### Backtesting
-- Use `backtesting.py` library (NOT their built-in indicators)
-- Use `pandas_ta` or `talib` for technical indicators instead
-- Sample data available at `/Users/md/Dropbox/dev/github/moon-dev-ai-agents-for-trading/src/data/rbi/BTC-USD-15m.csv`
+### Output
+
+- **Charts**: Saved to `src/data/charts/` as PNG files
+- **Audio**: Saved to `src/audio/` as MP3 files
+- **Console**: Real-time analysis printed with formatted boxes
+
+## Dependencies
+
+### Core Libraries
+- **pandas**: Data manipulation and analysis
+- **numpy**: Numerical operations
+- **matplotlib**: Chart plotting foundation
+- **mplfinance**: Candlestick chart generation
+
+### AI/LLM
+- **anthropic**: Claude API for chart analysis
+- **openai**: OpenAI API for text-to-speech
+
+### Technical Analysis
+- **pandas-ta**: Technical indicators (SMA, RSI, MACD, Bollinger Bands)
+
+### HyperLiquid Integration
+- **eth-account**: Ethereum account management for HyperLiquid
+- **hyperliquid-python-sdk**: HyperLiquid API client
+
+### Utilities
+- **python-dotenv**: Environment variable management
+- **termcolor**: Colored terminal output
+
+## HyperLiquid Integration
+
+The agent uses HyperLiquid for real-time market data. Key functions in `nice_funcs_hyperliquid.py`:
+
+- `get_data(symbol, timeframe, bars, add_indicators)`: Fetches OHLCV data with optional technical indicators
+- `get_position(symbol, account)`: Gets current position information
+- `market_buy(symbol, usd_size, account)`: Places market buy order
+- `market_sell(symbol, usd_size, account)`: Places market sell order
+- `kill_switch(symbol, account)`: Emergency position close
+
+## Development Guidelines
 
 ### Code Style
-- **No fake/synthetic data** - always use real data or fail the script
-- **Minimal error handling** - user wants to see errors, not over-engineered try/except blocks
-- **No API key exposure** - never show keys from `.env` in output
+- Keep files under 800 lines
+- Use descriptive variable names
+- Add comments for complex logic
+- Use colored terminal output for better UX
 
-### Agent Development Pattern
+### Making Changes
+- **Adding Symbols**: Edit `SYMBOLS` list in `chartanalysis_agent.py`
+- **Changing Timeframes**: Edit `TIMEFRAMES` list in `chartanalysis_agent.py`
+- **Adjusting AI Model**: Edit `AI_MODEL` in `src/config.py` or override in agent file
+- **Modifying Indicators**: Edit `INDICATORS` list in `chartanalysis_agent.py`
 
-When creating new agents:
-1. Inherit from base patterns in existing agents
-2. Use `ModelFactory` for LLM access
-3. Store outputs in `src/data/[agent_name]/`
-4. Make agent independently executable (standalone script)
-5. Add configuration to `config.py` if needed
-6. Follow naming: `[purpose]_agent.py`
+### Testing
+```bash
+# Run the agent once (it will loop continuously)
+python src/agents/chartanalysis_agent.py
 
-### Testing Strategies
-
-Place strategy definitions in `src/strategies/` folder:
-```python
-class YourStrategy(BaseStrategy):
-    name = "strategy_name"
-    description = "what it does"
-
-    def generate_signals(self, token_address, market_data):
-        return {
-            "action": "BUY"|"SELL"|"NOTHING",
-            "confidence": 0-100,
-            "reasoning": "explanation"
-        }
+# Press Ctrl+C to stop gracefully
 ```
 
-## Important Context
+## Troubleshooting
 
-### Risk-First Philosophy
-- Risk Agent runs first in main loop before any trading decisions
-- Configurable circuit breakers (`MAX_LOSS_USD`, `MINIMUM_BALANCE_USD`)
-- AI confirmation for position-closing decisions (configurable via `USE_AI_CONFIRMATION`)
+### Common Issues
 
-### Data Sources
-1. **BirdEye API** - Solana token data (price, volume, liquidity, OHLCV)
-2. **Moon Dev API** - Custom signals (liquidations, funding rates, OI, copybot data)
-3. **CoinGecko API** - 15,000+ token metadata, market caps, sentiment
-4. **Helius RPC** - Solana blockchain interaction
+1. **API Key Errors**: Ensure `.env` file exists with valid API keys
+2. **Module Not Found**: Run `pip install -r requirements.txt`
+3. **HyperLiquid Connection**: Check `HYPER_LIQUID_ETH_PRIVATE_KEY` is valid
+4. **Audio Not Playing**: Check `afplay` command works on your system (macOS only)
 
-### Autonomous Execution
-- Main loop runs every 15 minutes by default (`SLEEP_BETWEEN_RUNS_MINUTES`)
-- Agents handle errors gracefully and continue execution
-- Keyboard interrupt for graceful shutdown
-- All agents log to console with color-coded output (termcolor)
+### Debug Mode
 
-### AI-Driven Strategy Generation (RBI Agent)
-1. User provides: YouTube video URL / PDF / trading idea text
-2. DeepSeek-R1 analyzes and extracts strategy logic
-3. Generates backtesting.py compatible code
-4. Executes backtest and returns performance metrics
-5. Cost: ~$0.027 per backtest execution (~6 minutes)
+To see detailed chart data, check the console output which shows:
+- Last 5 candles with OHLCV data
+- Technical indicator values
+- AI analysis reasoning
+- Confidence scores
 
-## Common Patterns
+## Architecture Notes
 
-### Adding New Agent
-1. Create `src/agents/your_agent.py`
-2. Implement standalone execution logic
-3. Add to `ACTIVE_AGENTS` in `main.py` if needed for orchestration
-4. Use `ModelFactory` for LLM calls
-5. Store results in `src/data/your_agent/`
+### Base Agent Pattern
+All agents inherit from `BaseAgent` class which provides:
+- Agent type identification
+- Start time tracking
+- Optional exchange manager integration
 
-### Switching AI Models
-Edit `config.py`:
-```python
-AI_MODEL = "claude-3-haiku-20240307"  # Fast, cheap
-# AI_MODEL = "claude-3-sonnet-20240229"  # Balanced
-# AI_MODEL = "claude-3-opus-20240229"  # Most powerful
+### Data Flow
+```
+HyperLiquid API → nice_funcs_hyperliquid.py → chartanalysis_agent.py →
+→ mplfinance (chart) → Claude (analysis) → OpenAI TTS (voice) → Console/Files
 ```
 
-Or use different models per agent via ModelFactory:
-```python
-model = ModelFactory.create_model('deepseek')  # Reasoning tasks
-model = ModelFactory.create_model('groq')      # Fast inference
-```
+### File Organization
+- Agent outputs are stored in `src/data/charts/` and `src/audio/`
+- Old charts are cleaned up on each run to save space
+- All paths use `pathlib.Path` for cross-platform compatibility
 
-### Reading Market Data
-```python
-from src.nice_funcs import token_overview, get_ohlcv_data, token_price
+## Important Notes
 
-# Get comprehensive token data
-overview = token_overview(token_address)
+- This is an **educational project** - not financial advice
+- The agent provides analysis but does not execute trades automatically
+- Always verify AI analysis against your own research
+- HyperLiquid private key gives access to your account - keep it secure
+- Audio announcements require macOS `afplay` command (may need modification for other OS)
 
-# Get price history
-ohlcv = get_ohlcv_data(token_address, timeframe='1H', days_back=3)
+## Future Enhancements
 
-# Get current price
-price = token_price(token_address)
-```
-
-## Project Philosophy
-
-This is an **experimental, educational project** demonstrating AI agent patterns through algorithmic trading:
-- No guarantees of profitability (substantial risk of loss)
-- Open source and free for learning
-- YouTube-driven development with weekly updates
-- Community-supported via Discord
-- No token associated with project (avoid scams)
-
-The goal is to democratize AI agent development and show practical multi-agent orchestration patterns that can be applied beyond trading.
+Potential improvements you could make:
+- Add more technical indicators (Volume Profile, Ichimoku, etc.)
+- Implement trade execution based on signals
+- Add risk management rules
+- Create a web dashboard for visualization
+- Support additional exchanges
+- Add backtesting capabilities
