@@ -13,7 +13,29 @@ import threading
 import websocket
 from datetime import datetime, timedelta
 from pathlib import Path
-from termcolor import cprint
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
+
+# Shared Rich console similar to chartanalysis agent
+console = Console()
+
+
+def cprint(message, color=None, on_color=None, attrs=None):
+    """Compatibility helper that routes legacy cprint calls to Rich console."""
+    style_parts = []
+    if attrs:
+        if isinstance(attrs, str):
+            style_parts.append(attrs)
+        else:
+            style_parts.extend(attrs)
+    if color:
+        style_parts.append(color)
+    if on_color:
+        style_parts.append(f"on {on_color.replace('on_', '')}")
+    style = " ".join(style_parts) if style_parts else None
+    console.print(message, style=style)
 
 # Add project root to path
 project_root = str(Path(__file__).parent.parent.parent)
@@ -242,22 +264,23 @@ class PolymarketAgent:
         price_float = float(price)
         return price_float <= IGNORE_PRICE_THRESHOLD or price_float >= (1.0 - IGNORE_PRICE_THRESHOLD)
 
-    def should_ignore_market(self, title):
+    def should_ignore_market(self, title, slug):
         """🌙 Moon Dev - Check if market should be ignored based on category keywords
 
         Returns:
             tuple: (should_ignore: bool, reason: str or None)
         """
         title_lower = title.lower()
+        slugs = slug.split("-")
 
         # Check crypto keywords
         for keyword in IGNORE_CRYPTO_KEYWORDS:
-            if keyword in title_lower:
+            if keyword in title_lower or keyword in slugs:
                 return (True, f"crypto/bitcoin ({keyword})")
 
         # Check sports keywords
         for keyword in IGNORE_SPORTS_KEYWORDS:
-            if keyword in title_lower:
+            if keyword in title_lower or keyword in slugs:
                 return (True, f"sports ({keyword})")
 
         return (False, None)
@@ -437,9 +460,10 @@ class PolymarketAgent:
                 size = float(trade.get('size', 0))
                 usd_amount = price * size
                 title = trade.get('title', 'Unknown')
+				slug = payload.get('eventSlug', '') 
 
                 # Check if we should ignore this market category
-                should_ignore, _ = self.should_ignore_market(title)
+                should_ignore, _ = self.should_ignore_market(title, slug)
                 if should_ignore:
                     continue
 
@@ -533,31 +557,104 @@ class PolymarketAgent:
             if updated_markets > 0:
                 cprint(f"🔄 Updated {updated_markets} existing markets with fresh trade data", "cyan")
 
+    def _render_recent_markets_table(self, markets: pd.DataFrame) -> None:
+        """Render a Rich table for recent markets."""
+        if markets.empty:
+            return
+
+        table = Table(
+            title=f"Most Recent {len(markets)} Markets",
+            box=box.SIMPLE_HEAVY,
+            expand=False
+        )
+        table.add_column("Title", style="cyan", overflow="fold")
+        table.add_column("Outcome", style="magenta", justify="center")
+        table.add_column("Last Trade ($)", style="yellow", justify="right")
+        table.add_column("Link", style="blue")
+
+        for _, row in markets.iterrows():
+            title = row['title'] if len(row['title']) <= 72 else row['title'][:69] + "..."
+            table.add_row(
+                title,
+                row['outcome'] or "-",
+                f"${row['size_usd']:,.0f}",
+                f"https://polymarket.com/event/{row['event_slug']}"
+            )
+
+        console.print(table)
+
     def display_recent_markets(self):
         """Display the most recent markets from CSV"""
         if len(self.markets_df) == 0:
             cprint("\n📊 No markets in database yet", "yellow")
             return
 
-        cprint("\n" + "="*80, "cyan")
-        cprint(f"📊 Most Recent {min(MARKETS_TO_DISPLAY, len(self.markets_df))} Markets", "cyan", attrs=['bold'])
-        cprint("="*80, "cyan")
-
-        # Get most recent markets
         recent = self.markets_df.tail(MARKETS_TO_DISPLAY)
+        self._render_recent_markets_table(recent)
+        console.print(
+            Panel(
+                f"Total markets tracked: [bold]{len(self.markets_df)}[/bold]",
+                border_style="green"
+            )
+        )
 
-        for idx, row in recent.iterrows():
-            title = row['title'][:60] + "..." if len(row['title']) > 60 else row['title']
-            size = row['size_usd']
-            outcome = row['outcome']
+    def _render_status_table(self, fresh_eligible_count: int, total_markets: int) -> None:
+        """Show a Rich table summarizing current ingestion status."""
+        status_table = Table(
+            title=f"Moon Dev Status @ {datetime.now().strftime('%H:%M:%S')}",
+            box=box.SIMPLE_HEAVY,
+            expand=False
+        )
+        status_table.add_column("Metric", style="cyan")
+        status_table.add_column("Value", justify="right")
 
-            cprint(f"\n💵 ${size:,.2f} trade on {outcome}", "yellow")
-            cprint(f"📌 {title}", "white")
-            cprint(f"🔗 https://polymarket.com/event/{row['event_slug']}", "cyan")
+        ws_status = "[green]✅ Connected[/green]" if self.ws_connected else "[red]❌ Disconnected[/red]"
+        status_table.add_row("WebSocket", ws_status)
+        status_table.add_row("Total trades", f"{self.total_trades_received:,}")
+        status_table.add_row("Ignored crypto", f"{self.ignored_crypto_count:,}")
+        status_table.add_row("Ignored sports", f"{self.ignored_sports_count:,}")
+        status_table.add_row(f"Trades ≥ ${MIN_TRADE_SIZE_USD}", f"{self.filtered_trades_count:,}")
+        status_table.add_row("Markets in DB", f"{total_markets:,}")
 
-        cprint("\n" + "="*80, "cyan")
-        cprint(f"Total markets tracked: {len(self.markets_df)}", "green", attrs=['bold'])
-        cprint("="*80 + "\n", "cyan")
+        readiness = (
+            f"[green]Ready ({fresh_eligible_count}/{NEW_MARKETS_FOR_ANALYSIS})[/green]"
+            if fresh_eligible_count >= NEW_MARKETS_FOR_ANALYSIS
+            else f"[yellow]Collecting ({fresh_eligible_count}/{NEW_MARKETS_FOR_ANALYSIS})[/yellow]"
+        )
+        status_table.add_row("Analysis Trigger", readiness)
+        console.print(status_table)
+
+    def _print_analysis_overview(self, total_markets: int, fresh_eligible_count: int, is_first_run: bool) -> None:
+        """Use Rich console to show analysis readiness details."""
+        overview = Table(title="Analysis Readiness", box=box.SIMPLE_HEAVY, expand=False)
+        overview.add_column("Metric", style="cyan")
+        overview.add_column("Value", justify="right")
+        overview.add_row("Markets tracked", f"{total_markets:,}")
+        overview.add_row("Fresh eligible markets", f"{fresh_eligible_count:,}")
+        overview.add_row("Re-analysis threshold (hrs)", str(REANALYSIS_HOURS))
+
+        console.print(overview)
+
+        if is_first_run:
+            text = (
+                "[yellow]First run detected:[/yellow] Will analyze currently collected markets.\n"
+                f"Future runs require [bold]{NEW_MARKETS_FOR_ANALYSIS}[/bold] fresh markets."
+            )
+            border = "yellow"
+        elif fresh_eligible_count >= NEW_MARKETS_FOR_ANALYSIS:
+            text = (
+                f"[green]Requirement met![/green]\n"
+                f"{fresh_eligible_count} fresh markets ≥ trigger ({NEW_MARKETS_FOR_ANALYSIS})."
+            )
+            border = "green"
+        else:
+            needed = NEW_MARKETS_FOR_ANALYSIS - fresh_eligible_count
+            text = (
+                f"[yellow]Need {needed} more fresh markets before running analysis.[/yellow]"
+            )
+            border = "yellow"
+
+        console.print(Panel(text, border_style=border, expand=False))
 
     def get_ai_predictions(self):
         """Get AI predictions for recent markets"""
@@ -572,11 +669,15 @@ class PolymarketAgent:
         analysis_run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         analysis_timestamp = datetime.now().isoformat()
 
-        cprint("\n" + "="*80, "magenta")
-        cprint(f"🤖 AI Analysis - Analyzing {len(markets_to_analyze)} markets", "magenta", attrs=['bold'])
-        cprint(f"📊 Analysis Run ID: {analysis_run_id}", "magenta")
-        cprint(f"💰 Price info to AI: {'✅ ENABLED' if SEND_PRICE_INFO_TO_AI else '❌ DISABLED'}", "green" if SEND_PRICE_INFO_TO_AI else "yellow")
-        cprint("="*80, "magenta")
+        header_panel = Panel(
+            f"[bold]Analyzing {len(markets_to_analyze)} markets[/bold]\n"
+            f"[dim]Run ID: {analysis_run_id}[/dim]\n"
+            f"Price info to AI: {'[green]ENABLED[/green]' if SEND_PRICE_INFO_TO_AI else '[yellow]DISABLED[/yellow]'}",
+            title="🤖 AI Analysis",
+            border_style="magenta",
+            expand=False
+        )
+        console.print(header_panel)
 
         # Build prompt with market information
         # 🌙 Moon Dev - Conditionally include price info based on config
@@ -637,31 +738,40 @@ Provide predictions for each market in the specified format."""
 
         cprint(f"\n✅ Received {len(successful_responses)}/{len(swarm_result['responses'])} successful responses from swarm!\n", "green", attrs=['bold'])
 
-        # Display individual AI responses as they arrive
-        cprint("="*80, "yellow")
-        cprint("🤖 Individual AI Predictions", "yellow", attrs=['bold'])
-        cprint("="*80, "yellow")
+        console.print(Panel("🤖 Individual AI Predictions", border_style="yellow", expand=False))
 
         for model_name, model_data in swarm_result.get('responses', {}).items():
             if model_data.get('success'):
                 response_time = model_data.get('response_time', 0)
-                cprint(f"\n{'='*80}", "cyan")
-                cprint(f"✅ {model_name.upper()} ({response_time:.1f}s)", "cyan", attrs=['bold'])
-                cprint(f"{'='*80}", "cyan")
-                cprint(model_data.get('response', 'No response'), "white")
+                console.print(
+                    Panel(
+                        model_data.get('response', 'No response'),
+                        title=f"✅ {model_name.upper()} ({response_time:.1f}s)",
+                        border_style="cyan",
+                        expand=False
+                    )
+                )
             else:
                 error = model_data.get('error', 'Unknown error')
-                cprint(f"\n❌ {model_name.upper()} - FAILED: {error}", "red", attrs=['bold'])
+                console.print(
+                    Panel(
+                        f"{error}",
+                        title=f"❌ {model_name.upper()}",
+                        border_style="red",
+                        expand=False
+                    )
+                )
 
         # Calculate and display consensus (pass markets for title mapping)
         consensus_text = self._calculate_polymarket_consensus(swarm_result, markets_to_analyze)
 
-        cprint("\n" + "="*80, "green")
-        cprint("🎯 CONSENSUS ANALYSIS", "green", attrs=['bold'])
-        cprint(f"Based on {len(successful_responses)} AI models", "green")
-        cprint("="*80, "green")
-        cprint(consensus_text, "white")
-        cprint("="*80 + "\n", "green")
+        console.print(
+            Panel(
+                consensus_text,
+                title=f"🎯 Consensus Analysis ({len(successful_responses)} models)",
+                border_style="green"
+            )
+        )
 
         # 🌙 Moon Dev - Run final consensus AI to pick top 3 markets
         self._get_top_consensus_picks(swarm_result, markets_to_analyze)
@@ -963,9 +1073,13 @@ Provide predictions for each market in the specified format."""
             markets_df: DataFrame of markets being analyzed
         """
         try:
-            cprint("\n" + "="*80, "yellow")
-            cprint("🧠 Running Consensus AI to identify top 3 picks...", "yellow", attrs=['bold'])
-            cprint("="*80 + "\n", "yellow")
+            console.print(
+                Panel(
+                    "Running Consensus AI to identify top picks...",
+                    title="🧠 Consensus AI",
+                    border_style="yellow"
+                )
+            )
 
             # Build comprehensive summary of all AI responses
             all_responses_text = ""
@@ -1001,17 +1115,13 @@ Provide predictions for each market in the specified format."""
                 max_tokens=1000
             )
 
-            # Print with BLUE background
-            cprint("\n" + "="*80, "white", "on_blue", attrs=['bold'])
-            cprint(f"🏆 TOP {TOP_MARKETS_COUNT} CONSENSUS PICKS - MOON DEV AI RECOMMENDATION", "white", "on_blue", attrs=['bold'])
-            cprint("="*80, "white", "on_blue", attrs=['bold'])
-            cprint("", "white")  # Reset color
-
-            # Print the actual response
-            cprint(response.content, "cyan", attrs=['bold'])
-
-            cprint("\n" + "="*80, "white", "on_blue", attrs=['bold'])
-            cprint("="*80 + "\n", "white", "on_blue", attrs=['bold'])
+            console.print(
+                Panel(
+                    response.content,
+                    title=f"🏆 TOP {TOP_MARKETS_COUNT} CONSENSUS PICKS",
+                    border_style="blue"
+                )
+            )
 
             # 🌙 Moon Dev - Save consensus picks to dedicated CSV
             self._save_consensus_picks_to_csv(response.content, markets_df)
@@ -1146,7 +1256,7 @@ Provide predictions for each market in the specified format."""
 
     def status_display_loop(self):
         """🌙 Moon Dev - Display status updates every 30 seconds"""
-        cprint("\n📊 STATUS DISPLAY THREAD STARTED", "cyan", attrs=['bold'])
+        console.print(Panel("STATUS DISPLAY THREAD STARTED", title="📊 Status", border_style="cyan"))
         cprint(f"📡 Showing stats every 30 seconds\n", "cyan")
 
         while True:
@@ -1193,24 +1303,8 @@ Provide predictions for each market in the specified format."""
                     if is_eligible and has_fresh_trade:
                         fresh_eligible_count += 1
 
-                cprint(f"\n{'='*60}", "cyan")
-                cprint(f"📊 Moon Dev Status @ {datetime.now().strftime('%H:%M:%S')}", "cyan", attrs=['bold'])
-                cprint(f"{'='*60}", "cyan")
-                cprint(f"   WebSocket Connected: {'✅ YES' if self.ws_connected else '❌ NO'}", "green" if self.ws_connected else "red")
-                cprint(f"   Total trades received: {self.total_trades_received}", "white")
-                cprint(f"   Ignored crypto/bitcoin: {self.ignored_crypto_count}", "red")
-                cprint(f"   Ignored sports: {self.ignored_sports_count}", "red")
-                cprint(f"   Filtered trades (>=${MIN_TRADE_SIZE_USD}): {self.filtered_trades_count}", "yellow")
-                cprint(f"   Total markets in database: {total_markets}", "white")
-                cprint(f"   Fresh eligible markets: {fresh_eligible_count}", "yellow" if fresh_eligible_count < NEW_MARKETS_FOR_ANALYSIS else "green", attrs=['bold'])
-                cprint(f"   (Eligible + traded since last run)", "white")
-
-                if fresh_eligible_count >= NEW_MARKETS_FOR_ANALYSIS:
-                    cprint(f"   ✅ Ready for analysis! (Have {fresh_eligible_count}, need {NEW_MARKETS_FOR_ANALYSIS})", "green", attrs=['bold'])
-                else:
-                    cprint(f"   ⏳ Collecting... (Have {fresh_eligible_count}, need {NEW_MARKETS_FOR_ANALYSIS})", "yellow")
-
-                cprint(f"{'='*60}\n", "cyan")
+                self._render_status_table(fresh_eligible_count, total_markets)
+                console.print("[dim]Eligible markets must also have trades since the last analysis run.[/dim]\n")
 
             except KeyboardInterrupt:
                 break
@@ -1219,10 +1313,14 @@ Provide predictions for each market in the specified format."""
 
     def analysis_cycle(self):
         """Check if we have enough eligible markets and run AI analysis"""
-        cprint("\n" + "="*80, "magenta")
-        cprint("🤖 ANALYSIS CYCLE CHECK", "magenta", attrs=['bold'])
-        cprint(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "magenta")
-        cprint("="*80 + "\n", "magenta")
+        console.print(
+            Panel(
+                f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                title="🤖 Analysis Cycle Check",
+                border_style="magenta",
+                expand=False
+            )
+        )
 
         # Reload markets from CSV to get latest from collection thread
         with self.csv_lock:
@@ -1232,8 +1330,12 @@ Provide predictions for each market in the specified format."""
 
         # 🌙 Moon Dev - Skip if no markets exist yet
         if total_markets == 0:
-            cprint(f"\n⏳ No markets in database yet! WebSocket is collecting...", "yellow", attrs=['bold'])
-            cprint(f"   First analysis will run when markets are collected\n", "yellow")
+            console.print(
+                Panel(
+                    "⏳ No markets in database yet! WebSocket is collecting.\nFirst analysis will run once data arrives.",
+                    border_style="yellow"
+                )
+            )
             return
 
         # 🌙 Moon Dev - Count markets with FRESH TRADES that are also ELIGIBLE for re-analysis
@@ -1279,25 +1381,7 @@ Provide predictions for each market in the specified format."""
 
         is_first_run = (self.last_analysis_run_timestamp is None)
 
-        cprint(f"📊 Market Analysis Status:", "cyan", attrs=['bold'])
-        cprint(f"   Total markets in database: {total_markets}", "white")
-        cprint(f"   Fresh eligible markets: {fresh_eligible_count}", "yellow" if fresh_eligible_count < NEW_MARKETS_FOR_ANALYSIS else "green", attrs=['bold'])
-        cprint(f"   (Eligible markets with trades since last run)", "white")
-        cprint("", "white")
-
-        if is_first_run:
-            cprint(f"🎬 FIRST ANALYSIS RUN", "yellow", attrs=['bold'])
-            cprint(f"   Will analyze whatever markets we have collected (minimum 1)", "yellow")
-            cprint(f"   Future runs will require {NEW_MARKETS_FOR_ANALYSIS} fresh eligible markets\n", "yellow")
-        else:
-            cprint(f"🎯 Analysis Trigger Requirement:", "cyan", attrs=['bold'])
-            cprint(f"   Need: {NEW_MARKETS_FOR_ANALYSIS} fresh eligible markets", "white")
-            cprint(f"   Have: {fresh_eligible_count} fresh eligible markets", "white")
-            if fresh_eligible_count >= NEW_MARKETS_FOR_ANALYSIS:
-                cprint(f"   ✅ REQUIREMENT MET - Running analysis!", "green", attrs=['bold'])
-            else:
-                cprint(f"   ❌ Need {NEW_MARKETS_FOR_ANALYSIS - fresh_eligible_count} more fresh eligible markets", "yellow", attrs=['bold'])
-            cprint("", "white")
+        self._print_analysis_overview(total_markets, fresh_eligible_count, is_first_run)
 
         # First run: analyze whatever we have (if at least 1 market)
         # Subsequent runs: wait for NEW_MARKETS_FOR_ANALYSIS fresh eligible markets
@@ -1325,9 +1409,7 @@ Provide predictions for each market in the specified format."""
             cprint(f"\n⏳ Need {needed} more fresh eligible markets before next analysis", "yellow")
             cprint(f"   Waiting for trades on eligible markets (never analyzed OR >{REANALYSIS_HOURS}h old)", "yellow")
 
-        cprint("\n" + "="*80, "green")
-        cprint("✅ Analysis check complete!", "green", attrs=['bold'])
-        cprint("="*80 + "\n", "green")
+        console.print(Panel("✅ Analysis check complete!", border_style="green"))
 
 
     def analysis_loop(self):
@@ -1358,36 +1440,51 @@ Provide predictions for each market in the specified format."""
 
 def main():
     """🌙 Moon Dev Main - WebSocket real-time data + AI analysis threads"""
-    cprint("\n" + "="*80, "cyan")
-    cprint("🌙 Moon Dev's Polymarket Agent - WebSocket Edition!", "cyan", attrs=['bold'])
-    cprint("="*80, "cyan")
-    cprint(f"💰 Tracking trades over ${MIN_TRADE_SIZE_USD}", "yellow")
-    cprint(f"🚫 Ignoring prices within {IGNORE_PRICE_THRESHOLD:.2f} of $0 or $1", "yellow")
-    cprint(f"🚫 Filtering out crypto/Bitcoin markets ({len(IGNORE_CRYPTO_KEYWORDS)} keywords)", "red")
-    cprint(f"🚫 Filtering out sports markets ({len(IGNORE_SPORTS_KEYWORDS)} keywords)", "red")
-    cprint(f"📜 Lookback period: {LOOKBACK_HOURS} hours (fetches historical data on startup)", "yellow")
-    cprint("", "yellow")
-    cprint("🔄 REAL-TIME WebSocket MODE:", "green", attrs=['bold'])
-    cprint(f"   🌐 WebSocket: {WEBSOCKET_URL}", "cyan")
-    cprint(f"   📊 Status Display: Every 30s - Shows collection stats", "cyan")
-    cprint(f"   🤖 Analysis Thread: Every {ANALYSIS_CHECK_INTERVAL_SECONDS}s - Checks for new markets", "magenta")
-    cprint(f"   🎯 AI Analysis triggers when {NEW_MARKETS_FOR_ANALYSIS} new markets collected", "yellow")
-    cprint("", "yellow")
-    cprint("🤖 AI Mode: SWARM (multi-model only)", "yellow")
-    cprint(f"💰 Price Info to AI: {'ENABLED' if SEND_PRICE_INFO_TO_AI else 'DISABLED'}", "green" if SEND_PRICE_INFO_TO_AI else "yellow")
-    cprint("", "yellow")
-    cprint("📁 Data Files:", "cyan", attrs=['bold'])
-    cprint(f"   Markets: {MARKETS_CSV}", "white")
-    cprint(f"   Predictions: {PREDICTIONS_CSV}", "white")
-    cprint("="*80 + "\n", "cyan")
+    console.print(Panel("🌙 Moon Dev's Polymarket Agent - WebSocket Edition!", border_style="cyan"))
+
+    config_table = Table(title="Runtime Configuration", box=box.SIMPLE_HEAVY, expand=False)
+    config_table.add_column("Setting", style="cyan")
+    config_table.add_column("Value", style="magenta")
+    config_table.add_row("Min trade size", f"${MIN_TRADE_SIZE_USD}")
+    config_table.add_row("Ignore near resolution", f"{IGNORE_PRICE_THRESHOLD:.2f} from $0/$1")
+    config_table.add_row("Lookback period", f"{LOOKBACK_HOURS} hours")
+    config_table.add_row("Crypto keywords filtered", str(len(IGNORE_CRYPTO_KEYWORDS)))
+    config_table.add_row("Sports keywords filtered", str(len(IGNORE_SPORTS_KEYWORDS)))
+    console.print(config_table)
+
+    runtime_table = Table(title="Threads", box=box.SIMPLE, expand=False)
+    runtime_table.add_column("Component", style="cyan")
+    runtime_table.add_column("Details", style="white")
+    runtime_table.add_row("🌐 WebSocket", WEBSOCKET_URL)
+    runtime_table.add_row("📊 Status Display", "Every 30s")
+    runtime_table.add_row("🤖 Analysis Thread", f"Every {ANALYSIS_CHECK_INTERVAL_SECONDS}s")
+    runtime_table.add_row("🎯 Trigger", f"{NEW_MARKETS_FOR_ANALYSIS} fresh markets")
+    console.print(runtime_table)
+
+    ai_table = Table(title="AI Settings", box=box.SIMPLE, expand=False)
+    ai_table.add_column("Option", style="cyan")
+    ai_table.add_column("Value", style="white")
+    ai_table.add_row("Mode", "SWARM (multi-model)")
+    ai_table.add_row("Send price info", "ENABLED" if SEND_PRICE_INFO_TO_AI else "DISABLED")
+    console.print(ai_table)
+
+    data_table = Table(title="Data Files", box=box.SIMPLE, expand=False)
+    data_table.add_column("File", style="cyan")
+    data_table.add_column("Path", style="white")
+    data_table.add_row("Markets", MARKETS_CSV)
+    data_table.add_row("Predictions", PREDICTIONS_CSV)
+    console.print(data_table)
 
     # Initialize agent
     agent = PolymarketAgent()
 
     # 🌙 Moon Dev - Fetch historical trades on startup to populate database
-    cprint("\n" + "="*80, "yellow")
-    cprint(f"📜 Moon Dev fetching historical data from last {LOOKBACK_HOURS} hours...", "yellow", attrs=['bold'])
-    cprint("="*80, "yellow")
+    console.print(
+        Panel(
+            f"Fetching historical data from last {LOOKBACK_HOURS} hours...",
+            border_style="yellow"
+        )
+    )
 
     historical_trades = agent.fetch_historical_trades()
     if historical_trades:
@@ -1396,8 +1493,6 @@ def main():
         cprint(f"✅ Database populated with {len(agent.markets_df)} markets", "green")
     else:
         cprint("⚠️ No historical trades found - will start fresh from WebSocket", "yellow")
-
-    cprint("="*80 + "\n", "yellow")
 
     # Connect WebSocket (runs in its own thread)
     agent.connect_websocket()
@@ -1408,19 +1503,17 @@ def main():
 
     # Start threads
     try:
-        cprint("🚀 Moon Dev starting threads...\n", "green", attrs=['bold'])
+        console.print(Panel("🚀 Moon Dev starting threads...", border_style="green"))
         status_thread.start()
         analysis_thread.start()
 
         # Keep main thread alive
-        cprint("✨ Moon Dev WebSocket + AI running! Press Ctrl+C to stop.\n", "green", attrs=['bold'])
+        console.print(Panel("✨ Moon Dev WebSocket + AI running! Press Ctrl+C to stop.", border_style="green"))
         while True:
             time.sleep(1)
 
     except KeyboardInterrupt:
-        cprint("\n\n" + "="*80, "yellow")
-        cprint("⚠️ Moon Dev Polymarket Agent stopped by user", "yellow", attrs=['bold'])
-        cprint("="*80 + "\n", "yellow")
+        console.print(Panel("⚠️ Moon Dev Polymarket Agent stopped by user", border_style="yellow"))
         sys.exit(0)
 
 

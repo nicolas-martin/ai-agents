@@ -42,7 +42,10 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from termcolor import colored, cprint
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -53,6 +56,24 @@ if project_root not in sys.path:
 
 # Import Moon Dev's model factory
 from src.models.model_factory import model_factory
+
+console = Console()
+
+
+def cprint(message, color=None, on_color=None, attrs=None):
+    """Compatibility helper so legacy cprint calls leverage Rich Console."""
+    style_parts = []
+    if attrs:
+        if isinstance(attrs, str):
+            style_parts.append(attrs)
+        else:
+            style_parts.extend(attrs)
+    if color:
+        style_parts.append(color)
+    if on_color:
+        style_parts.append(f"on {on_color.replace('on_', '')}")
+    style = " ".join(style_parts) if style_parts else None
+    console.print(message, style=style)
 
 # ============================================
 # 🎯 SWARM CONFIGURATION - EDIT THIS SECTION
@@ -143,6 +164,23 @@ class SwarmAgent:
         cprint(f"\n🤖 Active Models in Swarm: {len(self.active_models)}", "green")
         for name in self.active_models.keys():
             cprint(f"   ✅ {name}", "green")
+        self._print_active_models_table()
+
+    def _print_active_models_table(self) -> None:
+        """Render a Rich table showing active models and providers."""
+        if not self.active_models:
+            console.print(Panel("No active models configured.", border_style="red"))
+            return
+
+        table = Table(title="Active Swarm Models", box=box.SIMPLE_HEAVY, expand=False)
+        table.add_column("Provider", style="cyan")
+        table.add_column("Type", style="magenta")
+        table.add_column("Model Name", style="white")
+
+        for provider, info in self.active_models.items():
+            table.add_row(provider.upper(), info["type"], info["name"])
+
+        console.print(table)
 
     def _initialize_models(self):
         """Initialize all enabled models"""
@@ -226,10 +264,12 @@ class SwarmAgent:
         cprint(f"\n🌊 Initiating Swarm Query with {len(self.active_models)} models...", "cyan", attrs=['bold'])
         cprint(f"📝 Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}", "blue")
 
-        # Show which models are being called in parallel
-        cprint(f"\n🚀 Calling models in parallel:", "yellow", attrs=['bold'])
+        models_table = Table(title="Models Invoked", box=box.SIMPLE, expand=False)
+        models_table.add_column("Provider", style="cyan")
+        models_table.add_column("Model", style="white")
         for provider, model_info in self.active_models.items():
-            cprint(f"   → {provider.upper()}: {model_info['name']}", "cyan")
+            models_table.add_row(provider.upper(), model_info['name'])
+        console.print(models_table)
 
         start_time = time.time()
         all_responses = {}
@@ -341,6 +381,8 @@ class SwarmAgent:
 
         # Prepare results
         total_time = round(time.time() - start_time, 2)
+
+        self._render_response_table(all_responses)
 
         result = {
             "timestamp": datetime.now().isoformat(),
@@ -464,28 +506,52 @@ class SwarmAgent:
 
         cprint(f"\n💾 Results saved to: {filename.relative_to(Path(project_root))}", "blue")
 
+    def _render_response_table(self, responses: Dict[str, Dict]) -> None:
+        """Render a Rich table summarizing response status for each model."""
+        if not responses:
+            return
+
+        table = Table(title="Swarm Response Status", box=box.SIMPLE_HEAVY, expand=False)
+        table.add_column("Provider", style="cyan")
+        table.add_column("Status", style="magenta")
+        table.add_column("Time (s)", justify="right")
+        table.add_column("Details", style="white", overflow="fold")
+
+        for provider, data in responses.items():
+            status = "[green]Success[/green]" if data["success"] else "[red]Failed[/red]"
+            detail = "OK" if data["success"] else data.get("error", "Unknown")
+            table.add_row(provider.upper(), status, f"{data['response_time']:.2f}", detail)
+
+        console.print(table)
+
     def _print_summary(self, result: Dict):
         """Print a summary of the swarm results"""
         metadata = result["metadata"]
 
-        cprint("\n" + "="*60, "green")
-        cprint("🎯 SWARM CONSENSUS", "green", attrs=['bold'])
-        cprint("="*60, "green")
+        summary_table = Table(title="Swarm Performance", box=box.SIMPLE_HEAVY, expand=False)
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", style="white")
+        summary_table.add_row("Total time", f"{metadata['total_time']}s")
+        summary_table.add_row("Successful responses", f"{metadata['successful_responses']}/{metadata['total_models']}")
+        summary_table.add_row("Failures", str(metadata['failed_responses']))
+        console.print(summary_table)
 
-        # Show model mapping first
         if "model_mapping" in result and result["model_mapping"]:
-            cprint("\n🔢 Model Key:", "blue")
+            mapping_table = Table(title="Model Key", box=box.SIMPLE, expand=False)
+            mapping_table.add_column("AI #", style="cyan")
+            mapping_table.add_column("Provider", style="white")
             for ai_num, provider in result["model_mapping"].items():
-                cprint(f"   {ai_num} = {provider}", "white")
+                mapping_table.add_row(ai_num, provider)
+            console.print(mapping_table)
 
-        # Show AI-generated consensus summary
         if "consensus_summary" in result:
-            cprint("\n🧠 AI CONSENSUS SUMMARY:", "magenta", attrs=['bold'])
-            cprint(f"{result['consensus_summary']}\n", "white")
-
-        cprint(f"⚡ Performance:", "cyan")
-        cprint(f"   Total Time: {metadata['total_time']}s", "white")
-        cprint(f"   Success Rate: {metadata['successful_responses']}/{metadata['total_models']}", "white")
+            console.print(
+                Panel(
+                    result["consensus_summary"],
+                    title="🧠 AI Consensus Summary",
+                    border_style="magenta"
+                )
+            )
 
     def query_dataframe(self, prompt: str, system_prompt: Optional[str] = None) -> pd.DataFrame:
         """
@@ -530,10 +596,7 @@ def main():
     # Query the swarm
     result = swarm.query(prompt)
 
-    # Show individual responses
-    cprint("\n" + "="*60, "cyan")
-    cprint("📋 AI RESPONSES", "cyan", attrs=['bold'])
-    cprint("="*60, "cyan")
+    console.print(Panel("📋 AI Responses", border_style="cyan"))
 
     # Create reverse mapping to show AI numbers
     reverse_mapping = {}
@@ -545,28 +608,35 @@ def main():
         if data["success"]:
             # Get AI number if available
             ai_label = reverse_mapping.get(provider, "")
-            if ai_label:
-                cprint(f"\n🤖 {ai_label} ({provider.upper()}):", "yellow", attrs=['bold'])
-            else:
-                cprint(f"\n🤖 {provider.upper()}:", "yellow", attrs=['bold'])
-
             response_text = data['response']
 
             # Truncate if too long (show first 800 chars)
             if len(response_text) > 800:
-                cprint(f"{response_text[:800]}...\n", "white")
-                cprint("[Response truncated - see full output in saved JSON]", "cyan")
+                body = f"{response_text[:800]}...\n\n[dim]Response truncated - see saved JSON for full output[/dim]"
             else:
-                cprint(f"{response_text}", "white")
+                body = response_text
 
-            cprint(f"⏱️  Response time: {data['response_time']}s", "cyan")
+            title = f"{ai_label} ({provider.upper()})" if ai_label else provider.upper()
+            console.print(
+                Panel(
+                    f"{body}\n\n[dim]Response time: {data['response_time']}s[/dim]",
+                    title=f"🤖 {title}",
+                    border_style="yellow"
+                )
+            )
         else:
-            cprint(f"\n❌ {provider.upper()}: Failed - {data['error']}", "red")
+            console.print(
+                Panel(
+                    data.get("error", "Unknown error"),
+                    title=f"❌ {provider.upper()}",
+                    border_style="red"
+                )
+            )
 
     # Show summary
     swarm._print_summary(result)
 
-    cprint("\n✨ Swarm query complete! 🌙", "cyan", attrs=['bold'])
+    console.print(Panel("✨ Swarm query complete! 🌙", border_style="cyan"))
 
 
 if __name__ == "__main__":
